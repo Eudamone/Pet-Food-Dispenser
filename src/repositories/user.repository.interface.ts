@@ -1,12 +1,11 @@
-import { User } from '@/entity-model/user.model.js';
+// user.repository.interface.ts
+import type { User } from '@/models/user.model.js';
+import type { Id } from '@/models/types.js';
 
-export interface IUserRepository {
-  findById(id: string): Promise<User | null>;
+export interface UserRepository {
+  findById(userId: Id): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
-  findAll(): Promise<User[]>;
-  save(user: User): Promise<User>;
-  delete(id: string): Promise<void>;
-  exists(email: string): Promise<boolean>;
+  save(user: User): Promise<void>;
 }
 
-export const USER_REPOSITORY = Symbol('IUserRepository');
+export const USER_REPOSITORY = Symbol('UserRepository');

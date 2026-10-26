@@ -17,4 +17,8 @@ export class Email {
   equals(other: Email): boolean {
     return this.value === other.value;
   }
+
+  toJSON(): string {
+    return this.value;
+  }
 }
