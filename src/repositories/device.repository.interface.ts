@@ -9,7 +9,6 @@ export interface DeviceRepository {
   findById(deviceId: Id): Promise<FeederDevice | null>;
   listByOwner(ownerId: Id): Promise<FeederDevice[]>;
   saveDevice(device: FeederDevice): Promise<void>;
-  saveAuthorizedPets(deviceId: Id, petIds: Set<Id>): Promise<void>;
   listDeviceIdsForPet(petId: Id): Promise<Id[]>;
 
   saveDesiredConfiguration(

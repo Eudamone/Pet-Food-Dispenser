@@ -324,7 +324,7 @@ curl "http://localhost:3000/feeding/devices/<DEVICE_ID>/budget/<PET_ID>"
 | GET | `/devices` | — | `200` `FeederDevice[]` |
 | GET | `/devices/:id` | — | `200` `FeederDevice` |
 | GET | `/devices/:id/configuration` | — | `200` `ConfigurationData \| null` |
-| POST | `/devices/:id/access/:petId` | — | `201` `{ revision }` (autoriza mascota) |
+| POST | `/devices/:id/access/:petId` | — | `201` `{ revision }` (autoriza mascota; `409` si el comedero ya tiene otra mascota o si la mascota ya está en otro comedero) |
 | DELETE | `/devices/:id/access/:petId` | — | `200` `{ revision }` (revoca) |
 | POST | `/devices/:id/apply` | — | `201` `{ revision }` (envía la configuración) |
 | POST | `/devices/:id/dispense` | `{ requestId?, targetGrams }` | `201` `{ requestId }` |
@@ -391,8 +391,10 @@ curl -X POST $BASE/devices/$DEV/dispense -H "$AUTH" -H 'Content-Type: applicatio
 - El dispositivo se **vincula** con `POST /devices` (`bindingCode`).
 - Obtiene su configuración vigente con `GET /devices/:id/configuration`.
 - Reporta/recupera resultados con `POST /devices/:id/synchronize`.
-- El backend autoriza mascotas por RFID mediante `POST /devices/:id/access/:petId`
-  y consulta quién puede comer con el presupuesto diario de `/feeding/.../budget/:petId`.
+- El backend liga el comedero con **una sola mascota** mediante
+  `POST /devices/:id/access/:petId` (relación 1‑1, `409` si el comedero ya tiene
+  otra mascota o la mascota ya está en otro; ver `docs/RELACIONES.md`) y consulta
+  quién puede comer con el presupuesto diario de `/feeding/.../budget/:petId`.
 
 > Nota: `ConnectionClient` (comunicación con el ESP32) todavía tiene implementación
 > **en memoria**; para hardware real hay que implementar esa interfaz (p. ej.
@@ -505,13 +507,25 @@ no un ID inventado por la app. Un código repetido/no vinculable produce
 `lastBowlGrams`, `gateState` y `lastFault`; `ownerId` puede estar incluido en la
 respuesta del modelo.
 
+**Regla de negocio (1‑1):** un comedero sirve a **una sola mascota** y una
+mascota come en **un solo comedero** (dos mascotas = dos comederos).
+`authorizedPetIds` por eso trae **0 o 1 elementos**; la restricción está en la
+base de datos (`UNIQUE`) y se explica en el API como `409`:
+
+| Situación | Respuesta |
+|---|---|
+| Autorizar la mascota que ya tiene el comedero | `201 { revision }` (idempotente) |
+| Autorizar una segunda mascota al mismo comedero | `409` |
+| Autorizar una mascota que ya está en otro comedero | `409` |
+| Revocar y autorizar otra | `200`/`201` (el comedero queda libre) |
+
 | Ruta | Entrada | Resultado |
 |---|---|---|
 | `POST /devices` | `{ "bindingCode": "KITCHEN-01" }` | `201 FeederDevice`. |
 | `GET /devices` | — | `200 FeederDevice[]` del dueño. |
 | `GET /devices/:id` | — | `200 FeederDevice`; otro dueño `403`, inexistente `404`. |
 | `GET /devices/:id/configuration` | — | `200 ConfigurationData` o `null` si aún no se aplicó configuración. |
-| `POST /devices/:id/access/:petId` | IDs en ruta | `201 { "revision": number }`; autoriza una mascota. |
+| `POST /devices/:id/access/:petId` | IDs en ruta | `201 { "revision": number }`; liga el comedero a esa mascota. `409` si el comedero ya tiene otra mascota o si la mascota ya está en otro comedero; repetir la misma mascota es idempotente. |
 | `DELETE /devices/:id/access/:petId` | IDs en ruta | `200 { "revision": number }`; revoca acceso. |
 | `POST /devices/:id/apply` | sin cuerpo | `201 { "revision": number }`; solicita aplicar la configuración actual. |
 | `POST /devices/:id/dispense` | `targetGrams` positivo; `requestId` UUID opcional | `201 { "requestId": "uuid" }`; el ID identifica la solicitud, no el resultado físico. |

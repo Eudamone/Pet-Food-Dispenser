@@ -77,17 +77,26 @@ export class DeviceService {
   async grantAccess(user: User, deviceId: Id, petId: Id): Promise<number> {
     const device = await this.getDevice(user, deviceId);
     await this.requireOwnedPet(user, petId);
+    // Regla de negocio: un comedero sirve a una sola mascota (dos mascotas =
+    // dos comederos) y una mascota come en un solo comedero.
+    if (device.authorizedPetIds.size > 0 && !device.isPetAuthorized(petId)) {
+      throw new ConflictException(
+        `Device ${deviceId} is already linked to another pet`,
+      );
+    }
+    const [linkedDeviceId] = await this.devices.listDeviceIdsForPet(petId);
+    if (linkedDeviceId && linkedDeviceId !== deviceId) {
+      throw new ConflictException(
+        `Pet ${petId} is already linked to device ${linkedDeviceId}`,
+      );
+    }
     device.addAuthorizedPet(petId);
-    await this.devices.saveDevice(device);
-    await this.devices.saveAuthorizedPets(deviceId, device.authorizedPetIds);
     return this.bumpRevision(device);
   }
 
   async revokeAccess(user: User, deviceId: Id, petId: Id): Promise<number> {
     const device = await this.getDevice(user, deviceId);
     device.removeAuthorizedPet(petId);
-    await this.devices.saveDevice(device);
-    await this.devices.saveAuthorizedPets(deviceId, device.authorizedPetIds);
     return this.bumpRevision(device);
   }
 

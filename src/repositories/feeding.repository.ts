@@ -4,12 +4,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
   FindOptionsWhere,
+  In,
   LessThanOrEqual,
   MoreThanOrEqual,
+  Not,
   Repository,
 } from 'typeorm';
 import { FeedingRepository } from '@/repositories/feeding.repository.interface.js';
 import { FeedingPlanOrmEntity } from '@/database/feeding-plan.entity.js';
+import { FeedingSlotOrmEntity } from '@/database/feeding-slot.entity.js';
 import { DispensingRecordOrmEntity } from '@/database/dispensing-record.entity.js';
 import { AccessSessionOrmEntity } from '@/database/access-session.entity.js';
 import { LocalDate, Day } from '@/helpers/local-date.vo.js';
@@ -18,7 +21,6 @@ import { FeedingPlan } from '@/models/feeding-plan.model.js';
 import { FeedingSlot } from '@/models/feeding-slot.model.js';
 import { DispensingRecord } from '@/models/dispensing-record.model.js';
 import { AccessSession } from '@/models/access-session.model.js';
-import type { FeedingSlotConfiguration } from '@/models/configuration.model.js';
 import type { Id, Instant } from '@/models/types.js';
 
 @Injectable()
@@ -26,6 +28,8 @@ export class TypeOrmFeedingRepository implements FeedingRepository {
   constructor(
     @InjectRepository(FeedingPlanOrmEntity)
     private readonly plans: Repository<FeedingPlanOrmEntity>,
+    @InjectRepository(FeedingSlotOrmEntity)
+    private readonly slotRows: Repository<FeedingSlotOrmEntity>,
     @InjectRepository(DispensingRecordOrmEntity)
     private readonly dispensing: Repository<DispensingRecordOrmEntity>,
     @InjectRepository(AccessSessionOrmEntity)
@@ -34,11 +38,26 @@ export class TypeOrmFeedingRepository implements FeedingRepository {
 
   async findPlanByDevice(deviceId: Id): Promise<FeedingPlan | null> {
     const entity = await this.plans.findOne({ where: { deviceId } });
-    return entity ? this.planToDomain(entity) : null;
+    if (!entity) {
+      return null;
+    }
+    entity.slots = await this.slotRows.find({
+      where: { planId: entity.id },
+      order: { position: 'ASC' },
+    });
+    return this.planToDomain(entity);
   }
 
   async savePlan(plan: FeedingPlan): Promise<void> {
+    // Guarda el plan y sus slots (cascade) y luego borra los slots que ya no
+    // forman parte del plan.
     await this.plans.save(this.planToOrm(plan));
+    const slotIds = plan.slots.map((slot) => slot.id);
+    if (slotIds.length === 0) {
+      await this.slotRows.delete({ planId: plan.id });
+      return;
+    }
+    await this.slotRows.delete({ planId: plan.id, id: Not(In(slotIds)) });
   }
 
   async saveDispensing(record: DispensingRecord): Promise<void> {
@@ -124,13 +143,17 @@ export class TypeOrmFeedingRepository implements FeedingRepository {
     entity.deviceId = plan.deviceId;
     entity.enabled = plan.enabled;
     entity.maxDailyDispensedGrams = plan.maxDailyDispensedGrams;
-    entity.slots = plan.slots.map<FeedingSlotConfiguration>((slot) => ({
-      id: slot.id,
-      time: slot.time.toString(),
-      days: slot.days,
-      targetGrams: slot.targetGrams,
-      enabled: slot.enabled,
-    }));
+    entity.slots = plan.slots.map((slot, index) => {
+      const row = new FeedingSlotOrmEntity();
+      row.id = slot.id;
+      row.planId = plan.id;
+      row.time = slot.time.toString();
+      row.days = [...slot.days];
+      row.targetGrams = slot.targetGrams;
+      row.enabled = slot.enabled;
+      row.position = index;
+      return row;
+    });
     return entity;
   }
 

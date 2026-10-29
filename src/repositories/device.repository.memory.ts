@@ -36,14 +36,6 @@ export class InMemoryDeviceRepository implements DeviceRepository {
     await this.store.set<FeederDevice>(DEVICES, device.id, device);
   }
 
-  async saveAuthorizedPets(deviceId: Id, petIds: Set<Id>): Promise<void> {
-    const device = await this.findById(deviceId);
-    if (device) {
-      device.authorizedPetIds = new Set(petIds);
-      await this.saveDevice(device);
-    }
-  }
-
   async listDeviceIdsForPet(petId: Id): Promise<Id[]> {
     const devices = await this.store.list<FeederDevice>(DEVICES);
     return devices

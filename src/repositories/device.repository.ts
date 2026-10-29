@@ -37,7 +37,10 @@ export class TypeOrmDeviceRepository implements DeviceRepository {
     entity.id = device.id;
     entity.ownerId = device.ownerId;
     entity.name = device.name;
-    entity.authorizedPetIds = [...device.authorizedPetIds];
+    // Comedero ↔ mascota (1-1): la mascota autorizada se guarda en la columna
+    // petId, así que saveDevice ya persiste el vínculo.
+    const [petId] = [...device.authorizedPetIds];
+    entity.petId = petId ?? null;
     entity.maxBowlGrams = device.maxBowlGrams;
     entity.desiredRevision = device.desiredRevision;
     entity.appliedRevision = device.appliedRevision;
@@ -48,15 +51,12 @@ export class TypeOrmDeviceRepository implements DeviceRepository {
     await this.devices.save(entity);
   }
 
-  async saveAuthorizedPets(deviceId: Id, petIds: Set<Id>): Promise<void> {
-    await this.devices.update({ id: deviceId }, { authorizedPetIds: [...petIds] });
-  }
-
   async listDeviceIdsForPet(petId: Id): Promise<Id[]> {
-    const devices = await this.devices.find();
-    return devices
-      .filter((device) => (device.authorizedPetIds ?? []).includes(petId))
-      .map((device) => device.id);
+    const entities = await this.devices.find({
+      where: { petId },
+      select: { id: true },
+    });
+    return entities.map((entity) => entity.id);
   }
 
   async saveDesiredConfiguration(
@@ -133,7 +133,7 @@ export class TypeOrmDeviceRepository implements DeviceRepository {
       entity.id,
       entity.ownerId,
       entity.name,
-      new Set(entity.authorizedPetIds ?? []),
+      new Set(entity.petId ? [entity.petId] : []),
       entity.maxBowlGrams,
       entity.desiredRevision,
       entity.appliedRevision,

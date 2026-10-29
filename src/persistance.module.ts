@@ -6,6 +6,7 @@ import { UserOrmEntity } from '@/database/user.entity.js';
 import { PetOrmEntity } from '@/database/pet.entity.js';
 import { RfidTagOrmEntity } from '@/database/rfid-tag.entity.js';
 import { FeedingPlanOrmEntity } from '@/database/feeding-plan.entity.js';
+import { FeedingSlotOrmEntity } from '@/database/feeding-slot.entity.js';
 import { DispensingRecordOrmEntity } from '@/database/dispensing-record.entity.js';
 import { AccessSessionOrmEntity } from '@/database/access-session.entity.js';
 import { FeederDeviceOrmEntity } from '@/database/feeder-device.entity.js';
@@ -32,6 +33,7 @@ import {
       PetOrmEntity,
       RfidTagOrmEntity,
       FeedingPlanOrmEntity,
+      FeedingSlotOrmEntity,
       DispensingRecordOrmEntity,
       AccessSessionOrmEntity,
       FeederDeviceOrmEntity,

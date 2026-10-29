@@ -1,6 +1,9 @@
 // dispensing-record.entity.ts
-import { Column, Entity, PrimaryColumn } from 'typeorm';
+// Relaciones por nombre de clase + `import type`: evitan ciclos ESM en runtime (docs/RELACIONES.md).
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import { DispensingSource, DispensingStatus } from '@/models/types.js';
+import type { FeederDeviceOrmEntity } from '@/database/feeder-device.entity.js';
+import type { FeedingSlotOrmEntity } from '@/database/feeding-slot.entity.js';
 
 @Entity('dispensing_records')
 export class DispensingRecordOrmEntity {
@@ -10,8 +13,19 @@ export class DispensingRecordOrmEntity {
   @Column('uuid')
   deviceId: string;
 
+  // FeederDevice 1 ── PRODUCES ── 0..* DispensingRecord
+  @ManyToOne('FeederDeviceOrmEntity', (device: FeederDeviceOrmEntity) => device.dispensingRecords)
+  @JoinColumn({ name: 'deviceId' })
+  device: FeederDeviceOrmEntity;
+
   @Column({ type: 'uuid', nullable: true })
   slotId: string | null;
+
+  // Un horario produce muchos dispensados; si se borra el slot el registro
+  // conserva sus datos y el vínculo queda nulo (ON DELETE SET NULL).
+  @ManyToOne('FeedingSlotOrmEntity', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'slotId' })
+  slot: FeedingSlotOrmEntity | null;
 
   @Column({ type: 'varchar' })
   source: DispensingSource;

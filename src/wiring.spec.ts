@@ -2,6 +2,8 @@ import { Test } from '@nestjs/testing';
 import { randomUUID } from 'crypto';
 import { AuthModule } from '@/auth.module.js';
 import { PersistenceMemoryModule } from '@/persistence.memory.module.js';
+import { EMAIL_CLIENT } from '@/repositories/email.client.js';
+import type { EmailMessage } from '@/repositories/email.client.js';
 import { AuthService } from '@/services/auth.service.js';
 import { PetService } from '@/services/pet.service.js';
 import { FeedingService } from '@/services/feeding.service.js';
@@ -14,10 +16,17 @@ import { PartialDate } from '@/helpers/partial-date.vo.js';
 
 describe('wiring (in-memory)', () => {
   it('runs the full register -> authenticate -> configure -> dispense flow', async () => {
+    // El cliente SMTP real no interviene: los correos (confirmación de
+    // registro) se capturan en un doble, igual que en el resto de pruebas.
+    const send = vi.fn(async (_message: EmailMessage) => undefined);
+
     const moduleRef = await Test.createTestingModule({
       imports: [AuthModule, PersistenceMemoryModule],
       providers: [AuthService, PetService, FeedingService, DeviceService, DeviceConnection],
-    }).compile();
+    })
+      .overrideProvider(EMAIL_CLIENT)
+      .useValue({ send })
+      .compile();
 
     const auth = moduleRef.get(AuthService);
     const pets = moduleRef.get(PetService);
@@ -26,6 +35,7 @@ describe('wiring (in-memory)', () => {
 
     const registration = await auth.register('Ana', 'ana@mail.com', 'secret1');
     expect(registration.isOk).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
     const { user, accessToken } = registration.value;
     expect(accessToken).toBeTruthy();
 
