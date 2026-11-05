@@ -1,6 +1,11 @@
+import { Column, Entity, PrimaryColumn, ForeignKey } from 'typeorm';
+import { User } from './User.js';
+
+@Entity('pets')
+@ForeignKey(() => User, ['ownerId'], ['id'], { onDelete: 'RESTRICT' })
 export class Pet {
-  private readonly _id: string;
-  private readonly _ownerId: string;
+  private _id: string;
+  private _ownerId: string;
 
   private _name: string;
 
@@ -30,36 +35,76 @@ export class Pet {
     this._name = Pet.validateName(name);
   }
 
+  @PrimaryColumn('uuid')
   get id(): string {
     return this._id;
   }
 
+  private set id(value: string) {
+    this._id = value;
+  }
+
+  @Column('uuid')
   get ownerId(): string {
     return this._ownerId;
   }
 
+  private set ownerId(value: string) {
+    this._ownerId = value;
+  }
+
+  @Column('varchar')
   get name(): string {
     return this._name;
   }
 
+  private set name(value: string) {
+    this._name = value;
+  }
+
+  @Column({ type: 'text', nullable: true })
   get species(): string | null {
     return this._species;
   }
 
+  private set species(value: string | null) {
+    this._species = value;
+  }
+
+  @Column({ type: 'double precision', nullable: true })
   get dailyLimitGrams(): number | null {
     return this._dailyLimitGrams;
   }
 
+  private set dailyLimitGrams(value: number | null) {
+    this._dailyLimitGrams = value;
+  }
+
+  @Column({ type: 'int', nullable: true })
   get birthYear(): number | null {
     return this._birthYear;
   }
 
+  private set birthYear(value: number | null) {
+    this._birthYear = value;
+  }
+
+  @Column({ type: 'int', nullable: true })
   get birthMonth(): number | null {
     return this._birthMonth;
   }
 
+  private set birthMonth(value: number | null) {
+    this._birthMonth = value;
+  }
+
+  @Column({ type: 'int', nullable: true })
   get birthDay(): number | null {
     return this._birthDay;
+  }
+
+  private set birthDay(value: number | null) {
+    this._birthDay = value;
   }
 
   rename(name: string): void {
@@ -188,5 +233,4 @@ export class Pet {
 
     return cleanName;
   }
-
 }

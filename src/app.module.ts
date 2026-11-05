@@ -10,6 +10,7 @@ import { PresentationModule } from './presentation/presentation.module.js';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
+      entitySkipConstructor: true,
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
     PresentationModule,

@@ -7,29 +7,25 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Pet } from '../domain/Pet.js';
 import { RfidTag } from '../domain/RfidTag.js';
-import { PetOrmEntity } from '../persistence/entities/pet.entity.js';
-import { RfidTagOrmEntity } from '../persistence/entities/rfid-tag.entity.js';
-import { UserOrmEntity } from '../persistence/entities/user.entity.js';
+import { User } from '../domain/User.js';
 
 @Injectable()
 export class PetRepository {
   constructor(
-    @InjectRepository(PetOrmEntity)
-    private readonly store: Repository<PetOrmEntity>,
-    @InjectRepository(RfidTagOrmEntity)
-    private readonly tags: Repository<RfidTagOrmEntity>,
+    @InjectRepository(Pet)
+    private readonly store: Repository<Pet>,
+    @InjectRepository(RfidTag)
+    private readonly tags: Repository<RfidTag>,
     private readonly database: DataSource,
   ) {}
 
   async findById(ownerId: string, petId: string): Promise<Pet | null> {
     const row = await this.store.findOneBy({ id: petId, ownerId });
-    return row ? this.toPet(row) : null;
+    return row;
   }
 
   async listByOwner(ownerId: string): Promise<Pet[]> {
-    return (
-      await this.store.find({ where: { ownerId }, order: { name: 'ASC' } })
-    ).map((row) => this.toPet(row));
+    return this.store.find({ where: { ownerId }, order: { name: 'ASC' } });
   }
 
   countByOwner(ownerId: string): Promise<number> {
@@ -37,17 +33,7 @@ export class PetRepository {
   }
 
   async savePet(pet: Pet): Promise<Pet> {
-    const row = await this.store.save({
-      id: pet.id,
-      ownerId: pet.ownerId,
-      name: pet.name,
-      species: pet.species ?? null,
-      dailyLimitGrams: pet.dailyLimitGrams ?? null,
-      birthYear: pet.birthYear,
-      birthMonth: pet.birthMonth,
-      birthDay: pet.birthDay,
-    });
-    return this.toPet(row);
+    return this.store.save(pet);
   }
 
   async delete(ownerId: string, petId: string): Promise<void> {
@@ -58,23 +44,16 @@ export class PetRepository {
 
   async findTag(ownerId: string, uid: string): Promise<RfidTag | null> {
     const row = await this.tags.findOneBy({ uid, ownerId });
-    return row ? this.toTag(row) : null;
+    return row;
   }
 
   async listTagsByOwner(ownerId: string): Promise<RfidTag[]> {
-    return (
-      await this.tags.find({ where: { ownerId }, order: { uid: 'ASC' } })
-    ).map((row) => this.toTag(row));
+    return this.tags.find({ where: { ownerId }, order: { uid: 'ASC' } });
   }
 
   async registerTag(tag: RfidTag): Promise<RfidTag> {
     try {
-      await this.tags.insert({
-        uid: tag.uid,
-        ownerId: tag.ownerId,
-        petId: null,
-        active: tag.active,
-      });
+      await this.tags.insert(tag);
       return tag;
     } catch (error) {
       if (
@@ -109,14 +88,14 @@ export class PetRepository {
     uid: string,
   ): Promise<RfidTag> {
     return this.database.transaction(async (manager) => {
-      const owner = await manager.findOne(UserOrmEntity, {
+      const owner = await manager.findOne(User, {
         where: { id: ownerId },
         lock: { mode: 'pessimistic_write' },
       });
       if (!owner) throw new NotFoundException('No se encontró el perfil.');
 
-      const pet = await manager.findOneBy(PetOrmEntity, { id: petId, ownerId });
-      const row = await manager.findOneBy(RfidTagOrmEntity, { uid, ownerId });
+      const pet = await manager.findOneBy(Pet, { id: petId, ownerId });
+      const row = await manager.findOneBy(RfidTag, { uid, ownerId });
       if (!pet || !row) {
         throw new NotFoundException(
           'La mascota o el tag no pertenecen a tu cuenta.',
@@ -124,7 +103,7 @@ export class PetRepository {
       }
 
       await manager.update(
-        RfidTagOrmEntity,
+        RfidTag,
         [
           { ownerId, petId },
           { ownerId, uid },
@@ -132,31 +111,12 @@ export class PetRepository {
         { petId: null },
       );
 
-      const tag = this.toTag(row);
+      const tag = row;
       tag.unassign();
       tag.assignTo(petId);
-      await manager.update(
-        RfidTagOrmEntity,
-        { ownerId, uid },
-        { petId: tag.petId },
-      );
-      const saved = await manager.findOneBy(RfidTagOrmEntity, { ownerId, uid });
-      return this.toTag(saved!);
+      await manager.update(RfidTag, { ownerId, uid }, { petId: tag.petId });
+      const saved = await manager.findOneBy(RfidTag, { ownerId, uid });
+      return saved!;
     });
-  }
-
-  private toPet(row: PetOrmEntity): Pet {
-    const pet = new Pet(row.id, row.ownerId, row.name);
-    pet.changeSpecies(row.species);
-    if (row.dailyLimitGrams !== null) pet.setDailyLimit(row.dailyLimitGrams);
-    pet.setBirthDate(row.birthYear, row.birthMonth, row.birthDay, new Date());
-    return pet;
-  }
-
-  private toTag(row: RfidTagOrmEntity): RfidTag {
-    const tag = new RfidTag(row.uid, row.ownerId);
-    if (row.petId !== null) tag.assignTo(row.petId);
-    if (!row.active) tag.deactivate();
-    return tag;
   }
 }

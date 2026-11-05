@@ -1,11 +1,16 @@
+import { Column, Entity, PrimaryColumn, ForeignKey } from 'typeorm';
+import { User } from './User.js';
+
 export type GateState = 'unknown' | 'open' | 'closed' | 'moving' | 'blocked';
 
+@Entity('feeders')
+@ForeignKey(() => User, ['ownerId'], ['id'], { onDelete: 'RESTRICT' })
 export class FeederDevice {
-  private readonly _id: string;
-  private readonly _ownerId: string;
-  private readonly _maxBowlGrams: number;
+  private _id: string;
+  private _ownerId: string;
+  private _maxBowlGrams: number;
   private _name: string;
-  private readonly _authorizedPetIds = new Set<string>();
+  private _authorizedPetIds = new Set<string>();
   private _desiredRevision = 0;
   private _appliedRevision = 0;
   private _lastSeenAt: Date | null = null;
@@ -26,38 +31,100 @@ export class FeederDevice {
     this.rename(name);
   }
 
+  @PrimaryColumn('uuid')
   get id(): string {
     return this._id;
   }
+
+  private set id(value: string) {
+    this._id = value;
+  }
+  @Column('uuid')
   get ownerId(): string {
     return this._ownerId;
   }
+
+  private set ownerId(value: string) {
+    this._ownerId = value;
+  }
+  @Column('varchar')
   get name(): string {
     return this._name;
   }
+
+  private set name(value: string) {
+    this._name = value;
+  }
+  @Column('double precision')
   get maxBowlGrams(): number {
     return this._maxBowlGrams;
   }
+
+  private set maxBowlGrams(value: number) {
+    this._maxBowlGrams = value;
+  }
+  @Column({
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+    transformer: {
+      to: (ids: ReadonlySet<string>) => [...ids],
+      from: (ids: string[]) => new Set(ids),
+    },
+  })
   get authorizedPetIds(): ReadonlySet<string> {
     return new Set(this._authorizedPetIds);
   }
+
+  private set authorizedPetIds(value: ReadonlySet<string>) {
+    this._authorizedPetIds = new Set(value);
+  }
+  @Column({ type: 'int', default: 0 })
   get desiredRevision(): number {
     return this._desiredRevision;
   }
+
+  private set desiredRevision(value: number) {
+    this._desiredRevision = value;
+  }
+  @Column({ type: 'int', default: 0 })
   get appliedRevision(): number {
     return this._appliedRevision;
   }
+
+  private set appliedRevision(value: number) {
+    this._appliedRevision = value;
+  }
+  @Column({ type: 'timestamptz', nullable: true })
   get lastSeenAt(): Date | null {
     return this._lastSeenAt ? new Date(this._lastSeenAt) : null;
   }
+
+  private set lastSeenAt(value: Date | null) {
+    this._lastSeenAt = value;
+  }
+  @Column({ type: 'double precision', nullable: true })
   get lastBowlGrams(): number | null {
     return this._lastBowlGrams;
   }
+
+  private set lastBowlGrams(value: number | null) {
+    this._lastBowlGrams = value;
+  }
+  @Column({ type: 'text', default: 'unknown' })
   get gateState(): GateState {
     return this._gateState;
   }
+
+  private set gateState(value: GateState) {
+    this._gateState = value;
+  }
+  @Column({ type: 'text', nullable: true })
   get lastFault(): string | null {
     return this._lastFault;
+  }
+
+  private set lastFault(value: string | null) {
+    this._lastFault = value;
   }
 
   rename(name: string): void {

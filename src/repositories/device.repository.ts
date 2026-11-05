@@ -6,41 +6,26 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FeederDevice } from '../domain/FeederDevice.js';
-import { FeederOrmEntity } from '../persistence/entities/feeder.entity.js';
 
 @Injectable()
 export class DeviceRepository {
   constructor(
-    @InjectRepository(FeederOrmEntity)
-    private readonly store: Repository<FeederOrmEntity>,
+    @InjectRepository(FeederDevice)
+    private readonly store: Repository<FeederDevice>,
   ) {}
 
   async findById(ownerId: string, id: string): Promise<FeederDevice | null> {
     const row = await this.store.findOneBy({ ownerId, id });
-    return row ? this.toDomain(row) : null;
+    return row;
   }
 
   async listByOwner(ownerId: string): Promise<FeederDevice[]> {
-    return (
-      await this.store.find({ where: { ownerId }, order: { name: 'ASC' } })
-    ).map((row) => this.toDomain(row));
+    return this.store.find({ where: { ownerId }, order: { name: 'ASC' } });
   }
 
   async create(device: FeederDevice): Promise<FeederDevice> {
     try {
-      await this.store.insert({
-        id: device.id,
-        ownerId: device.ownerId,
-        name: device.name,
-        maxBowlGrams: device.maxBowlGrams,
-        authorizedPetIds: [],
-        desiredRevision: 0,
-        appliedRevision: 0,
-        gateState: 'unknown',
-        lastSeenAt: null,
-        lastBowlGrams: null,
-        lastFault: null,
-      });
+      await this.store.insert(device);
       return device;
     } catch (error) {
       if (
@@ -67,26 +52,5 @@ export class DeviceRepository {
     const result = await this.store.delete({ ownerId, id });
     if (!result.affected)
       throw new NotFoundException('No se encontró el equipo.');
-  }
-
-  private toDomain(row: FeederOrmEntity): FeederDevice {
-    const device = new FeederDevice(
-      row.id,
-      row.ownerId,
-      row.name,
-      row.maxBowlGrams,
-    );
-    for (const id of row.authorizedPetIds) device.addAuthorizedPet(id);
-    if (row.desiredRevision > 0) device.markRequested(row.desiredRevision);
-    device.confirmApplied(row.appliedRevision);
-    if (row.lastSeenAt) {
-      device.updateObservedState(
-        row.lastSeenAt,
-        row.lastBowlGrams,
-        row.gateState,
-        row.lastFault,
-      );
-    }
-    return device;
   }
 }

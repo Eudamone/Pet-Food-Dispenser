@@ -1,5 +1,8 @@
+import { Column, Entity, PrimaryColumn } from 'typeorm';
+
+@Entity('users')
 export class User {
-  private readonly _id: string;
+  private _id: string;
 
   private _name: string;
   private _email: string;
@@ -16,16 +19,31 @@ export class User {
     this._email = User.validateEmail(email);
   }
 
+  @PrimaryColumn('uuid')
   get id(): string {
     return this._id;
   }
 
+  private set id(value: string) {
+    this._id = value;
+  }
+
+  @Column('varchar')
   get name(): string {
     return this._name;
   }
 
+  private set name(value: string) {
+    this._name = value;
+  }
+
+  @Column('varchar')
   get email(): string {
     return this._email;
+  }
+
+  private set email(value: string) {
+    this._email = value;
   }
 
   rename(name: string): void {
@@ -61,5 +79,4 @@ export class User {
 
     return cleanEmail;
   }
-
 }

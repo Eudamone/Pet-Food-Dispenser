@@ -1,6 +1,13 @@
+import { Column, Entity, PrimaryColumn, ForeignKey } from 'typeorm';
+import { User } from './User.js';
+import { Pet } from './Pet.js';
+
+@Entity('rfid_tags')
+@ForeignKey(() => User, ['ownerId'], ['id'], { onDelete: 'RESTRICT' })
+@ForeignKey(() => Pet, ['petId'], ['id'], { onDelete: 'SET NULL' })
 export class RfidTag {
-  private readonly _uid: string;
-  private readonly _ownerId: string;
+  private _uid: string;
+  private _ownerId: string;
 
   private _petId: string | null = null;
 
@@ -22,20 +29,40 @@ export class RfidTag {
     this._ownerId = cleanOwnerId;
   }
 
+  @PrimaryColumn('text')
   get uid(): string {
     return this._uid;
   }
 
+  private set uid(value: string) {
+    this._uid = value;
+  }
+
+  @Column('uuid')
   get ownerId(): string {
     return this._ownerId;
   }
 
+  private set ownerId(value: string) {
+    this._ownerId = value;
+  }
+
+  @Column({ type: 'uuid', nullable: true, unique: true })
   get petId(): string | null {
     return this._petId;
   }
 
+  private set petId(value: string | null) {
+    this._petId = value;
+  }
+
+  @Column({ type: 'boolean', default: true })
   get active(): boolean {
     return this._active;
+  }
+
+  private set active(value: boolean) {
+    this._active = value;
   }
 
   assignTo(petId: string): void {
@@ -62,5 +89,4 @@ export class RfidTag {
   deactivate(): void {
     this._active = false;
   }
-
 }

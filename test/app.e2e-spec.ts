@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PresentationModule } from '../dist/presentation/presentation.module.js';
-import { PersistenceModule } from '../dist/persistence/persistence.module.js';
+import { RepositoriesModule } from '../dist/repositories/repositories.module.js';
 import { PetService } from '../dist/services/pet.service.js';
 import { AuthService } from '../dist/services/auth.service.js';
 import { UserService } from '../dist/services/user.service.js';
@@ -26,9 +26,9 @@ describe('API y autorización', () => {
     const fixture = await Test.createTestingModule({
       imports: [PresentationModule],
     })
-      .overrideModule(PersistenceModule)
+      .overrideModule(RepositoriesModule)
       .useModule({
-        module: class TestPersistenceModule {},
+        module: class TestRepositoriesModule {},
         providers: [
           { provide: UserRepository, useValue: users },
           { provide: PetRepository, useValue: pets },
