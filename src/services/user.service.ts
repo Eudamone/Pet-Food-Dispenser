@@ -1,80 +1,37 @@
-// users.service.ts
-import { Inject, Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-
-import * as UserRepo from '@/repositories/user.repository.interface.js';
-import { User } from '@/entity-model/user.model.js';
-import * as dto from '@/dto/user.dto.js';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { User } from '../domain/User.js';
+import { UserRepository } from '../repositories/user.repository.js';
+import type {
+  CreateUserDto,
+  UpdateUserDto,
+} from '../presentation/dto/user.dto.js';
 
 @Injectable()
-export class UsersService {
-  constructor(
-    @Inject(UserRepo.USER_REPOSITORY) // Inyecta el repositorio tipado para User
-    private readonly userRepository:  UserRepo.IUserRepository,
-  ) {}
+export class UserService {
+  constructor(private readonly users: UserRepository) {}
 
-  async create(dto: dto.CreateUserDto): Promise<User> {
-    // Check if user already exists
-    const emailExists = await this.userRepository.exists(dto.email);
-    if (emailExists) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    // Create domain entity
-    const user = User.create({
-      id: randomUUID(),
-      email: dto.email,
-      name: dto.name,
-    });
-
-    // Persist
-    return await this.userRepository.save(user);
+  async create(session: User, dto: CreateUserDto): Promise<User> {
+    const existing = await this.users.findById(session.id);
+    if (existing) return this.findOne(session);
+    return this.users.save(new User(session.id, dto.name, session.email));
   }
 
-  async update(id: string, dto: dto.UpdateUserDto) : Promise<User>{
-    const user = await this.userRepository.findById(id);
-    if (!user) {
-      throw new NotFoundException(`User with id ${id} not found`);
-    }
+  async findOne(session: User): Promise<User> {
+    const user = await this.users.findById(session.id);
+    if (!user)
+      throw new NotFoundException('Primero debes completar tu perfil.');
 
-    let updatedUser = user;
-
-    if (dto.name !== undefined) {
-      updatedUser = updatedUser.updateName(dto.name);
-    }
-
-    if (dto.isActive !== undefined) {
-      updatedUser = dto.isActive
-        ? updatedUser.activate()
-        : updatedUser.deactivate();
-    }
-
-    return await this.userRepository.save(updatedUser);
-
-  } 
-
-  async findAll(): Promise<User[]> {
-    return this.userRepository.findAll();
-  }
-
-  async findOne(id: string): Promise<User> {
-    const user = await this.userRepository.findById(id);
-    if (!user) {
-      throw new NotFoundException(`User with id ${id} not found`);
+    if (user.email !== session.email) {
+      user.applyVerifiedEmail(session.email);
+      return this.users.save(user);
     }
     return user;
   }
 
-  async findByEmail(email: string): Promise<User> {
-    const user = await this.userRepository.findByEmail(email);
-    if (!user) {
-      throw new NotFoundException(`User with email ${email} not found`);
-    }
-    return user;
-  }
-
-  async delete(id: string): Promise<void> {
-    await this.findOne(id);
-    await this.userRepository.delete(id);
+  async update(session: User, dto: UpdateUserDto): Promise<User> {
+    const current = await this.findOne(session);
+    const user = new User(current.id, current.name, current.email);
+    if (dto.name !== undefined) user.rename(dto.name);
+    return this.users.save(user);
   }
 }
