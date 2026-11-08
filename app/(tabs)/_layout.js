@@ -1,8 +1,11 @@
-import { Tabs } from "expo-router";
-import { View, TouchableOpacity } from "react-native";
-import { HomeIcon, ClockRotate, Gear } from "../../components/Icons";
+import { Redirect, Tabs } from "expo-router";
+import { Text, View, TouchableOpacity } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { HomeIcon, Gear } from "../../components/Icons";
+import { useSession } from "../../components/Session";
 
 function CustomTabBar({ state, descriptors, navigation }) {
+  const { bottom } = useSafeAreaInsets();
   return (
     <View
       style={{
@@ -10,7 +13,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
         justifyContent: "space-around",
         alignItems: "center",
         position: "absolute",
-        bottom: 20,
+        bottom: Math.max(bottom, 12),
         left: 20,
         right: 20,
         backgroundColor: "#FFFEDC",
@@ -42,16 +45,23 @@ function CustomTabBar({ state, descriptors, navigation }) {
           <TouchableOpacity
             key={route.key}
             onPress={onPress}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isFocused }}
             style={{
-              width: 60,
-              height: 60,
-              borderRadius: 30,
-              backgroundColor: isFocused ? "#390301" : "#ccc",
+              width: "30%",
+              height: 54,
+              borderRadius: 18,
+              backgroundColor: isFocused ? "#390301" : "transparent",
               alignItems: "center",
-              justifyContent: "center", // 🔑 centra el ícono
+              justifyContent: "center",
             }}
           >
             {Icon({ color: isFocused ? "#FA6F00" : "#333" })}
+            <Text
+              style={{ color: isFocused ? "#FFFEDC" : "#381008", fontSize: 10 }}
+            >
+              {options.title}
+            </Text>
           </TouchableOpacity>
         );
       })}
@@ -60,6 +70,8 @@ function CustomTabBar({ state, descriptors, navigation }) {
 }
 
 export default function TabsLayout() {
+  const { session } = useSession();
+  if (!session) return <Redirect href="/login" />;
   return (
     <Tabs
       screenOptions={{ headerShown: false }}
@@ -73,16 +85,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="records"
-        options={{
-          title: "Historial",
-          tabBarIcon: ({ color }) => <ClockRotate color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="configuration"
         options={{
-          title: "Configuración",
+          title: "Horarios",
           tabBarIcon: ({ color }) => <Gear color={color} />,
         }}
       />

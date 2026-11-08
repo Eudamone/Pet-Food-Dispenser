@@ -1,108 +1,96 @@
-import {KeyboardAvoidingView,View,Text,TextInput,Pressable} from 'react-native'
-import {Image} from 'expo-image'
-import {Cat} from '../components/Icons'
-import {useRouter} from 'expo-router'
+import { useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Image } from "expo-image";
+import { Redirect } from "expo-router";
+import { Action, Card, colors, styles } from "./Screen";
+import { useSession } from "./Session";
 
-export  function LoginScreen(){
-    const router = useRouter();
+export function LoginScreen() {
+  const { session, signIn } = useSession();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-    const  handleLogin = () => {
-        router.replace('/(tabs)');
-    };
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      await signIn(email.trim(), password);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-    return (
-        <KeyboardAvoidingView className="flex-1">
-            <View className="flex-1">
-                {/*Area de Imagen de Gatos*/}
-                <View className="h-96 w-full items-center justify-end overflow-hidden pt-10 rounded-b-[60px]">
-                    <Image
-                        source={require('../assets/imagen_gatos.png')}
-                        style={{ width:'100%', height: '100%',top:0,position:'relative'}}
-                        contentFit='contain'
-                    />
-                </View>
+  if (session) return <Redirect href="/(tabs)" />;
 
-                {/*Area para formulario y icono de pata de gato*/}
-                <View className="flex-1 relative -mt-12">
-                    <View className="absolute inset-0 bg-[#381008] rounded-t-[100%] scale-x-150 z-0"/>
-                            
-                    {/*Contenido para la franja cafe*/}     
-                    <View className="flex-1 px-7 pt-12 pb-8 items-center justify-center z-10">
-                        <View className="absolute -top-7 bg-[#FDFBEB] w-16 h-14 items-center justify-center elevation-5 shadow-lg z-20"
-                                style={{
-                                    borderRadius: 28,
-                                    borderTopLeftRadius: 35,
-                                    borderBottomRightRadius: 35,
-                                    borderTopRightRadius: 25,
-                                    borderBottomLeftRadius: 25,
-                                }}
-                        >
-                            <Cat size={30} color="#381008"/>
-                        </View>
-
-                        <View className="w-full  items-center gap-y-6 ">
-                            <Text className="mt-8 tracking-wider"
-                                style={{fontFamily:'titan-one',color:'#F57302',fontSize:60}}
-                            >
-                                LOGIN
-                            </Text>
-
-                            {/*Formulario*/}
-                            <View className="w-full gap-y-4 my-auto">
-                                <View className="bg-[#FDFBEB] rounded-full h-16 px-5 justify-center ">
-                                    <TextInput
-                                        placeholder='Email o Username'
-                                        placeholderTextColor="#8C736C"
-                                        autoCapitalize='none'
-                                        className="text-base text-[#381008] font-calm"
-                                    />
-                                </View>
-
-                                <View className="bg-[#FDFBEB] rounded-full h-16 px-5 justify-center ">
-                                    <TextInput
-                                        placeholder='Contraseña'
-                                        placeholderTextColor="#8C736C"
-                                        
-                                        className="text-base text-[#381008] font-calm"
-                                    />
-                                </View>
-
-                                <Pressable
-                                    onPress={handleLogin}
-                                    android_ripple={{ color: 'rgba(56, 16, 8, 0.15)', borderless: false }}
-                                    className="bg-[#FFFEDC] rounded-full h-16 justify-center mt-2 px-2 self-center overflow-hidden"
-                                    style={({ pressed }) => [
-                                        {
-                                        transform: [{ scale: pressed ? 0.96 : 1 }],
-                                        opacity: pressed ? 0.9 : 1,
-                                        },
-                                    ]}
-                                    >
-                                    {({ pressed }) => (
-                                        <View className="flex-row items-center gap-4">
-                                            {/* El icono rota un poco (5 grados) solo mientras se presiona */}
-                                            <View
-                                                className="bg-[#F57302] rounded-full w-[50px] h-[50px] items-center justify-center"
-                                                style={{
-                                                transform: [{ rotate: pressed ? '-8deg' : '0deg' }],
-                                                }}
-                                            >
-                                                <Cat size={35} color="#FFFEDC" />
-                                            </View>
-
-                                            <View className="items-center justify-center pr-4">
-                                                <Text className="font-titan text-[#381008] text-2xl">INGRESAR</Text>
-                                            </View>
-                                        </View>
-                                    )}
-                                </Pressable>
-                            </View>
-                        </View>
-                        
-                    </View>
-                    
-                </View>
-            </View>
-        </KeyboardAvoidingView>
-    )
+  return (
+    <KeyboardAvoidingView
+      style={styles.safe}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: 24 }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.eyebrow}>PET FEEDER</Text>
+        <Image
+          source={require("../assets/imagen_gatos.png")}
+          style={{ width: "100%", height: 185 }}
+          contentFit="contain"
+        />
+        <Text accessibilityRole="header" style={styles.title}>
+          Bienvenido
+        </Text>
+        <Text style={styles.body}>
+          Consulta a tus mascotas y organiza los horarios de su comedero.
+        </Text>
+        <Card>
+          <Text style={styles.label}>Correo electrónico</Text>
+          <TextInput
+            style={styles.input}
+            accessibilityLabel="Correo electrónico"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            placeholder="nombre@correo.com"
+            placeholderTextColor={colors.muted}
+          />
+          <Text style={styles.label}>Contraseña</Text>
+          <TextInput
+            style={styles.input}
+            accessibilityLabel="Contraseña"
+            value={password}
+            onChangeText={setPassword}
+            autoCapitalize="none"
+            autoComplete="current-password"
+            secureTextEntry
+            placeholder="Tu contraseña"
+            placeholderTextColor={colors.muted}
+          />
+          {!!error && (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          )}
+          <Action
+            label={busy ? "Ingresando…" : "Ingresar"}
+            onPress={submit}
+            disabled={busy || !email.trim() || !password}
+          />
+        </Card>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
 }
