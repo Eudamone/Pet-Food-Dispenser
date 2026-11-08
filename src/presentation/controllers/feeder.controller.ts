@@ -44,7 +44,9 @@ export class FeedersController {
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return FeederResponseDto.from(await this.feeders.findOne(request.user, id));
+    return FeederResponseDto.from(
+      await this.feeders.getDevice(request.user, id),
+    );
   }
 
   @Patch(':id')

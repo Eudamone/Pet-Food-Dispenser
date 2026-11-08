@@ -1,15 +1,20 @@
 import {
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { User } from '../domain/User.js';
+import { UserRepository } from '../repositories/user.repository.js';
 
 @Injectable()
 export class AuthService {
+  constructor(private readonly users: UserRepository) {}
+
   async currentUser(token: string): Promise<User> {
     const url = process.env.SUPABASE_URL;
-    const apiKey = process.env.SUPABASE_ANON_KEY;
+    const apiKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
 
     if (!url || !apiKey) {
       throw new ServiceUnavailableException(
@@ -56,12 +61,44 @@ export class AuthService {
       );
     }
 
+    let identity: User;
     try {
-      return new User(data.id, data.email, data.email);
+      identity = new User(data.id, data.email, data.email);
     } catch {
       throw new ServiceUnavailableException(
         'El proveedor devolvió datos de usuario inválidos.',
       );
     }
+    return (await this.loadProfile(identity)) ?? identity;
+  }
+
+  async createProfile(identity: User, name: string): Promise<User> {
+    const existing = await this.loadProfile(identity);
+    return (
+      existing ?? this.users.save(new User(identity.id, name, identity.email))
+    );
+  }
+
+  async getProfile(identity: User): Promise<User> {
+    const profile = await this.loadProfile(identity);
+    if (!profile)
+      throw new NotFoundException('Primero debes completar tu perfil.');
+    return profile;
+  }
+
+  async updateProfile(identity: User, name?: string): Promise<User> {
+    const profile = await this.getProfile(identity);
+    if (name === undefined) return profile;
+    profile.rename(name);
+    return this.users.save(profile);
+  }
+
+  private async loadProfile(identity: User): Promise<User | null> {
+    const profile = await this.users.findById(identity.id);
+    if (profile && profile.email !== identity.email) {
+      profile.applyVerifiedEmail(identity.email);
+      return this.users.save(profile);
+    }
+    return profile;
   }
 }

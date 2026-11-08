@@ -21,7 +21,7 @@ export class PetService {
     private readonly users: UserRepository,
   ) {}
 
-  async create(user: User, dto: CreatePetDto): Promise<Pet> {
+  async registerPet(user: User, dto: CreatePetDto): Promise<Pet> {
     await this.ensureProfile(user.id);
     return this.pets.savePet(this.buildPet(randomUUID(), user.id, dto));
   }
@@ -41,7 +41,7 @@ export class PetService {
     return pet;
   }
 
-  async update(user: User, id: string, dto: UpdatePetDto): Promise<Pet> {
+  async updatePet(user: User, id: string, dto: UpdatePetDto): Promise<Pet> {
     const current = await this.findOne(user, id);
     const pet = this.buildPet(current.id, current.ownerId, {
       name: dto.name ?? current.name,
@@ -58,7 +58,7 @@ export class PetService {
   }
 
   async setDailyLimit(user: User, id: string, grams: number): Promise<Pet> {
-    return this.update(user, id, { dailyLimitGrams: grams });
+    return this.updatePet(user, id, { dailyLimitGrams: grams });
   }
 
   async delete(user: User, id: string): Promise<void> {

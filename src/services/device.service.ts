@@ -43,7 +43,7 @@ export class DeviceService {
     return this.feeders.listByOwner(user.id);
   }
 
-  async findOne(user: User, id: string): Promise<FeederDevice> {
+  async getDevice(user: User, id: string): Promise<FeederDevice> {
     const device = await this.feeders.findById(user.id, id);
     if (!device)
       throw new NotFoundException('No se encontró el equipo en tu cuenta.');
@@ -55,13 +55,13 @@ export class DeviceService {
     id: string,
     dto: UpdateFeederDto,
   ): Promise<FeederDevice> {
-    const device = await this.findOne(user, id);
+    const device = await this.getDevice(user, id);
     if (dto.name !== undefined) device.rename(dto.name);
-    return this.feeders.save(device);
+    return this.feeders.saveDevice(device);
   }
 
   async delete(user: User, id: string): Promise<void> {
-    await this.findOne(user, id);
+    await this.getDevice(user, id);
     await this.feeders.delete(user.id, id);
   }
 }

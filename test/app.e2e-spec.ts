@@ -5,7 +5,6 @@ import { PresentationModule } from '../dist/presentation/presentation.module.js'
 import { RepositoriesModule } from '../dist/repositories/repositories.module.js';
 import { PetService } from '../dist/services/pet.service.js';
 import { AuthService } from '../dist/services/auth.service.js';
-import { UserService } from '../dist/services/user.service.js';
 import { DeviceService } from '../dist/services/device.service.js';
 import { UserRepository } from '../dist/repositories/user.repository.js';
 import { PetRepository } from '../dist/repositories/pet.repository.js';
@@ -40,7 +39,6 @@ describe('API y autorización', () => {
       .useValue({ currentUser: vi.fn(async () => user) })
       .compile();
     expect(fixture.get(PetService)).toBeDefined();
-    expect(fixture.get(UserService)).toBeDefined();
     expect(fixture.get(DeviceService)).toBeDefined();
     app = fixture.createNestApplication();
     app.useGlobalPipes(

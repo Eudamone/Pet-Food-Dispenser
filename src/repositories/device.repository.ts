@@ -38,7 +38,7 @@ export class DeviceRepository {
     }
   }
 
-  async save(device: FeederDevice): Promise<FeederDevice> {
+  async saveDevice(device: FeederDevice): Promise<FeederDevice> {
     const result = await this.store.update(
       { id: device.id, ownerId: device.ownerId },
       { name: device.name },

@@ -12,25 +12,27 @@ import {
   UpdateUserDto,
   UserResponseDto,
 } from '../dto/user.dto.js';
-import { UserService } from '../../services/user.service.js';
+import { AuthService } from '../../services/auth.service.js';
 import { AuthGuard, type AuthenticatedRequest } from './auth.guard.js';
 
 @Controller('users')
 @UseGuards(AuthGuard)
 export class UsersController {
-  constructor(private readonly users: UserService) {}
+  constructor(private readonly auth: AuthService) {}
 
   @Post()
   async create(
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateUserDto,
   ) {
-    return UserResponseDto.from(await this.users.create(request.user, dto));
+    return UserResponseDto.from(
+      await this.auth.createProfile(request.user, dto.name),
+    );
   }
 
   @Get('me')
   async findOne(@Req() request: AuthenticatedRequest) {
-    return UserResponseDto.from(await this.users.findOne(request.user));
+    return UserResponseDto.from(await this.auth.getProfile(request.user));
   }
 
   @Patch('me')
@@ -38,6 +40,8 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: UpdateUserDto,
   ) {
-    return UserResponseDto.from(await this.users.update(request.user, dto));
+    return UserResponseDto.from(
+      await this.auth.updateProfile(request.user, dto.name),
+    );
   }
 }

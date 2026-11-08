@@ -30,7 +30,7 @@ export class PetsController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreatePetDto,
   ) {
-    return PetResponseDto.from(await this.pets.create(request.user, dto));
+    return PetResponseDto.from(await this.pets.registerPet(request.user, dto));
   }
 
   @Get()
@@ -59,7 +59,9 @@ export class PetsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePetDto,
   ) {
-    return PetResponseDto.from(await this.pets.update(request.user, id, dto));
+    return PetResponseDto.from(
+      await this.pets.updatePet(request.user, id, dto),
+    );
   }
 
   @Patch(':id/daily-limit')
