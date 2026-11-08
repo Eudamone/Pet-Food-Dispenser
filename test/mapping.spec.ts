@@ -3,13 +3,14 @@ import { User } from '../dist/domain/User.js';
 import { Pet } from '../dist/domain/Pet.js';
 import { RfidTag } from '../dist/domain/RfidTag.js';
 import { FeederDevice } from '../dist/domain/FeederDevice.js';
+import { FeedingPlan } from '../dist/domain/FeedingPlan.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const petId = '22222222-2222-4222-8222-222222222222';
 const deviceId = '33333333-3333-4333-8333-333333333333';
 const database = new DataSource({
   type: 'postgres',
-  entities: [User, Pet, RfidTag, FeederDevice],
+  entities: [User, Pet, RfidTag, FeederDevice, FeedingPlan],
   entitySkipConstructor: true,
 });
 
@@ -33,6 +34,34 @@ describe('Mapeo del dominio', () => {
     await (
       database as unknown as { buildMetadatas(): Promise<void> }
     ).buildMetadatas();
+  });
+
+  it('recupera un solo plan por equipo con horarios de dominio', () => {
+    const plan = hydrate(FeedingPlan, {
+      id: '44444444-4444-4444-8444-444444444444',
+      deviceId,
+      enabled: true,
+      maxDailyDispensedGrams: 160,
+      slots: [
+        {
+          id: 'slot-1',
+          time: '07:00',
+          days: [1],
+          targetGrams: 40,
+          enabled: true,
+        },
+      ],
+    });
+    expect(plan.slots[0].occursOn(1)).toBe(true);
+    expect(() => plan.validate(100)).not.toThrow();
+    const metadata = database.getMetadata(FeedingPlan);
+    expect(
+      metadata.primaryColumns.map((column) => column.propertyName),
+    ).toEqual(['deviceId']);
+    expect(metadata.foreignKeys[0]).toMatchObject({
+      referencedTablePath: 'feeders',
+      onDelete: 'CASCADE',
+    });
   });
 
   it('recupera perfiles con sus métodos y conserva las columnas existentes', () => {

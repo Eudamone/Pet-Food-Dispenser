@@ -6,6 +6,7 @@ import { PetsController } from './controllers/pet.controller.js';
 import { RfidController } from './controllers/rfid.controller.js';
 import { FeedersController } from './controllers/feeder.controller.js';
 import { HealthController } from './controllers/health.controller.js';
+import { FeedingController } from './controllers/feeding.controller.js';
 
 @Module({
   imports: [ServicesModule],
@@ -15,6 +16,7 @@ import { HealthController } from './controllers/health.controller.js';
     PetsController,
     RfidController,
     FeedersController,
+    FeedingController,
   ],
   providers: [AuthGuard],
 })

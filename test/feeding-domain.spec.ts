@@ -32,7 +32,7 @@ describe('Horarios y plan', () => {
     expect(slot.occursOn(1)).toBe(true);
   });
 
-  it.each(['24:00', '7:00', '12:60', '00:00:00'])(
+  it.each(['24:00', '7:00', '12:60', '00:00:00', '07:00\n'])(
     'rechaza la hora %s',
     (time) => {
       expect(() => new FeedingSlot('slot-1', time, [1], 40)).toThrow();

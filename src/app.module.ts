@@ -9,6 +9,7 @@ import { PresentationModule } from './presentation/presentation.module.js';
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
+      schema: process.env.DB_SCHEMA,
       autoLoadEntities: true,
       entitySkipConstructor: true,
       synchronize: process.env.DB_SYNCHRONIZE === 'true',

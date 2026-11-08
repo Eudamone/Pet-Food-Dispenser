@@ -9,7 +9,7 @@ export class FeedingSlot {
     public readonly enabled = true,
   ) {
     if (!id.trim()) throw new Error('El horario necesita un identificador.');
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time))
+    if (time.length !== 5 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))
       throw new Error('La hora debe tener el formato HH:mm.');
     if (
       days.length === 0 ||
