@@ -1,8 +1,28 @@
+import { Column, Entity, ForeignKey, PrimaryColumn } from 'typeorm';
+import { FeederDevice } from './FeederDevice.js';
+
 export type DispensingSource = 'schedule' | 'manual';
 export type DispensingStatus =
   'pending' | 'running' | 'completed' | 'skipped' | 'failed' | 'interrupted';
 
+@Entity('dispensing_records')
+@ForeignKey(() => FeederDevice, ['deviceId'], ['id'], { onDelete: 'RESTRICT' })
 export class DispensingRecord {
+  @PrimaryColumn({ type: 'varchar', length: 120 })
+  readonly id: string;
+
+  @PrimaryColumn('uuid')
+  readonly deviceId: string;
+
+  @Column('text')
+  readonly source: DispensingSource;
+
+  @Column('double precision')
+  readonly targetGrams: number;
+
+  @Column({ type: 'text', nullable: true })
+  readonly slotId: string | null;
+
   private _initialGrams: number | null = null;
   private _finalGrams: number | null = null;
   private _measurementValid = false;
@@ -12,11 +32,11 @@ export class DispensingRecord {
   private _reason: string | null = null;
 
   constructor(
-    public readonly id: string,
-    public readonly deviceId: string,
-    public readonly source: DispensingSource,
-    public readonly targetGrams: number,
-    public readonly slotId: string | null = null,
+    id: string,
+    deviceId: string,
+    source: DispensingSource,
+    targetGrams: number,
+    slotId: string | null = null,
   ) {
     if (!id.trim() || !deviceId.trim())
       throw new Error('Faltan identificador o equipo.');
@@ -29,28 +49,68 @@ export class DispensingRecord {
       throw new Error('Solo una solicitud programada debe tener horario.');
     if (!Number.isFinite(targetGrams) || targetGrams <= 0)
       throw new Error('El objetivo debe ser positivo.');
+    this.id = id;
+    this.deviceId = deviceId;
+    this.source = source;
+    this.targetGrams = targetGrams;
+    this.slotId = slotId;
   }
 
+  @Column({ type: 'double precision', nullable: true })
   get initialGrams(): number | null {
     return this._initialGrams;
   }
+
+  private set initialGrams(value: number | null) {
+    this._initialGrams = value;
+  }
+  @Column({ type: 'double precision', nullable: true })
   get finalGrams(): number | null {
     return this._finalGrams;
   }
+
+  private set finalGrams(value: number | null) {
+    this._finalGrams = value;
+  }
+  @Column('boolean')
   get measurementValid(): boolean {
     return this._measurementValid;
   }
+
+  private set measurementValid(value: boolean) {
+    this._measurementValid = value;
+  }
+  @Column('text')
   get status(): DispensingStatus {
     return this._status;
   }
+
+  private set status(value: DispensingStatus) {
+    this._status = value;
+  }
+  @Column({ type: 'timestamptz', nullable: true })
   get startedAt(): Date | null {
     return this._startedAt ? new Date(this._startedAt) : null;
   }
+
+  private set startedAt(value: Date | null) {
+    this._startedAt = value;
+  }
+  @Column({ type: 'timestamptz', nullable: true })
   get finishedAt(): Date | null {
     return this._finishedAt ? new Date(this._finishedAt) : null;
   }
+
+  private set finishedAt(value: Date | null) {
+    this._finishedAt = value;
+  }
+  @Column({ type: 'text', nullable: true })
   get reason(): string | null {
     return this._reason;
+  }
+
+  private set reason(value: string | null) {
+    this._reason = value;
   }
 
   markStarted(initialGrams: number, at: Date): void {

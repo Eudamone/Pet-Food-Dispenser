@@ -3,13 +3,83 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityTarget } from 'typeorm';
+import { AccessSession } from '../domain/AccessSession.js';
+import { DispensingRecord } from '../domain/DispensingRecord.js';
 import { FeederDevice } from '../domain/FeederDevice.js';
 import { FeedingPlan } from '../domain/FeedingPlan.js';
 
 @Injectable()
 export class FeedingRepository {
   constructor(private readonly database: DataSource) {}
+
+  async saveAccess(session: AccessSession): Promise<void> {
+    await this.database
+      .getRepository(AccessSession)
+      .createQueryBuilder()
+      .insert()
+      .values(session)
+      .orIgnore()
+      .execute();
+  }
+
+  async saveDispensing(record: DispensingRecord): Promise<void> {
+    await this.database
+      .getRepository(DispensingRecord)
+      .createQueryBuilder()
+      .insert()
+      .values(record)
+      .orIgnore()
+      .execute();
+  }
+
+  listAccess(ownerId: string, deviceId: string): Promise<AccessSession[]> {
+    return this.history(AccessSession, ownerId, deviceId)
+      .orderBy('record.openedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('record.id', 'DESC')
+      .take(100)
+      .getMany();
+  }
+
+  listAccessByDay(
+    ownerId: string,
+    deviceId: string,
+    petId: string,
+    day: string,
+  ): Promise<AccessSession[]> {
+    return this.history(AccessSession, ownerId, deviceId)
+      .andWhere('record.accountingDay = :day AND record.petId = :petId', {
+        day,
+        petId,
+      })
+      .getMany();
+  }
+
+  listDispensing(
+    ownerId: string,
+    deviceId: string,
+  ): Promise<DispensingRecord[]> {
+    return this.history(DispensingRecord, ownerId, deviceId)
+      .orderBy('record.startedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('record.id', 'DESC')
+      .take(100)
+      .getMany();
+  }
+
+  private history<T extends AccessSession | DispensingRecord>(
+    entity: EntityTarget<T>,
+    ownerId: string,
+    deviceId: string,
+  ) {
+    return this.database
+      .getRepository(entity)
+      .createQueryBuilder('record')
+      .innerJoin(FeederDevice, 'device', 'device.id = record.deviceId')
+      .where('record.deviceId = :deviceId AND device.ownerId = :ownerId', {
+        deviceId,
+        ownerId,
+      });
+  }
 
   findPlanByDevice(
     ownerId: string,

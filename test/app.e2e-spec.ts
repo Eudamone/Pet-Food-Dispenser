@@ -6,6 +6,9 @@ import { RepositoriesModule } from '../dist/repositories/repositories.module.js'
 import { PetService } from '../dist/services/pet.service.js';
 import { AuthService } from '../dist/services/auth.service.js';
 import { DeviceService } from '../dist/services/device.service.js';
+import { DeviceConnection } from '../dist/services/device-connection.js';
+import { AccessSession } from '../dist/domain/AccessSession.js';
+import { Pet } from '../dist/domain/Pet.js';
 import { UserRepository } from '../dist/repositories/user.repository.js';
 import { PetRepository } from '../dist/repositories/pet.repository.js';
 import { DeviceRepository } from '../dist/repositories/device.repository.js';
@@ -15,21 +18,31 @@ import { User } from '../dist/domain/User.js';
 
 describe('API y autorización', () => {
   let app: INestApplication;
+  let deviceService: DeviceService;
+  const connection = {
+    readResults: vi.fn(),
+    confirmResults: vi.fn(),
+    connected: false,
+  };
   const user = new User('owner-1', 'Ana', 'ana@example.com');
   const feederId = 'ae4db682-69a8-41ce-a90f-c6d29c9ce994';
   const feeder = new FeederDevice(feederId, user.id, 'Cocina', 100);
   const users = { findById: vi.fn(async () => user) };
   const pets = {
     listByOwner: vi.fn(async () => []),
-    findById: vi.fn(async () => null),
+    findById: vi.fn(async (): Promise<Pet | null> => null),
     savePet: vi.fn(async (pet) => pet),
   };
   const devices = {
+    requireDevice: vi.fn(async () => undefined),
     findById: vi.fn(async (ownerId, id) =>
       ownerId === user.id && id === feederId ? feeder : null,
     ),
   };
   const plans = {
+    saveAccess: vi.fn(async (_session: AccessSession) => undefined),
+    listAccess: vi.fn(async (): Promise<AccessSession[]> => []),
+    listAccessByDay: vi.fn(async (): Promise<AccessSession[]> => []),
     findPlanByDevice: vi.fn(async () => null),
     savePlan: vi.fn(async (_ownerId, _plan, revision) => ({
       desiredRevision: revision + 1,
@@ -59,9 +72,11 @@ describe('API y autorización', () => {
       })
       .overrideProvider(AuthService)
       .useValue({ currentUser: vi.fn(async () => user) })
+      .overrideProvider(DeviceConnection)
+      .useValue(connection)
       .compile();
     expect(fixture.get(PetService)).toBeDefined();
-    expect(fixture.get(DeviceService)).toBeDefined();
+    deviceService = fixture.get(DeviceService);
     app = fixture.createNestApplication();
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),
@@ -79,6 +94,54 @@ describe('API y autorización', () => {
 
   it('rechaza solicitudes sin sesión', async () => {
     await request(app.getHttpServer()).get('/pets').expect(401);
+  });
+
+  it('confirma una visita únicamente después de guardar el resultado', async () => {
+    const event = {
+      id: 'access-1',
+      kind: 'access',
+      petId: '40ab954e-2476-447d-90d9-1284021596c8',
+      tagUid: '00FF',
+      accountingDay: '2026-11-08',
+      status: 'closed',
+      openedAt: '2026-11-08T15:00:00Z',
+      closedAt: '2026-11-08T15:01:00Z',
+      initialGrams: 30,
+      finalGrams: 18,
+      tolerance: 2,
+    };
+    plans.saveAccess.mockRejectedValueOnce(new Error('Fallo de escritura'));
+    await expect(deviceService.synchronize(feederId, event)).rejects.toThrow(
+      'Fallo de escritura',
+    );
+    expect(connection.confirmResults).not.toHaveBeenCalled();
+
+    await deviceService.synchronize(feederId, event);
+    const [visit] = plans.saveAccess.mock.calls.at(-1)!;
+    expect(visit.consumedGrams()).toBe(12);
+    expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
+      event.id,
+    ]);
+
+    plans.listAccess.mockResolvedValueOnce([visit]);
+    await request(app.getHttpServer())
+      .get('/feeders/' + feederId + '/access')
+      .set('Authorization', 'Bearer test')
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body[0]).toMatchObject({ id: event.id, consumedGrams: 12 }),
+      );
+
+    pets.findById.mockResolvedValueOnce(new Pet(event.petId, user.id, 'Luna'));
+    plans.listAccessByDay.mockResolvedValueOnce([visit]);
+    await request(app.getHttpServer())
+      .get('/feeders/' + feederId + '/pets/' + event.petId + '/consumption')
+      .query({ day: event.accountingDay })
+      .set('Authorization', 'Bearer test')
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ measuredGrams: 12, unknownSessions: 0 }),
+      );
   });
 
   it('consulta el plan solo para un equipo del usuario', async () => {

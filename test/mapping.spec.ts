@@ -4,13 +4,23 @@ import { Pet } from '../dist/domain/Pet.js';
 import { RfidTag } from '../dist/domain/RfidTag.js';
 import { FeederDevice } from '../dist/domain/FeederDevice.js';
 import { FeedingPlan } from '../dist/domain/FeedingPlan.js';
+import { AccessSession } from '../dist/domain/AccessSession.js';
+import { DispensingRecord } from '../dist/domain/DispensingRecord.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const petId = '22222222-2222-4222-8222-222222222222';
 const deviceId = '33333333-3333-4333-8333-333333333333';
 const database = new DataSource({
   type: 'postgres',
-  entities: [User, Pet, RfidTag, FeederDevice, FeedingPlan],
+  entities: [
+    User,
+    Pet,
+    RfidTag,
+    FeederDevice,
+    FeedingPlan,
+    AccessSession,
+    DispensingRecord,
+  ],
   entitySkipConstructor: true,
 });
 
@@ -62,6 +72,38 @@ describe('Mapeo del dominio', () => {
       referencedTablePath: 'feeders',
       onDelete: 'CASCADE',
     });
+  });
+
+  it('recupera visitas con peso desconocido y conserva la identidad por equipo', () => {
+    const session = hydrate(AccessSession, {
+      id: 'visit-1',
+      deviceId,
+      petId,
+      tagUid: '00FF',
+      accountingDay: '2026-11-08',
+      openedAt: new Date('2026-11-08T15:00:00Z'),
+      closedAt: null,
+      initialGrams: 30,
+      finalGrams: null,
+      measurementValid: false,
+      status: 'interrupted',
+      issue: 'Se perdió la medición final.',
+    });
+    expect(session.consumedGrams()).toBeNull();
+    expect(
+      database
+        .getMetadata(AccessSession)
+        .primaryColumns.map((column) => column.propertyName),
+    ).toEqual(['id', 'deviceId']);
+    expect(
+      database.getMetadata(DispensingRecord).foreignKeys[0].referencedTablePath,
+    ).toBe('feeders');
+    expect(database.getMetadata(DispensingRecord).foreignKeys[0].onDelete).toBe(
+      'RESTRICT',
+    );
+    expect(database.getMetadata(AccessSession).foreignKeys[0].onDelete).toBe(
+      'RESTRICT',
+    );
   });
 
   it('recupera perfiles con sus métodos y conserva las columnas existentes', () => {

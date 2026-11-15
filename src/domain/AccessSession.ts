@@ -1,6 +1,27 @@
+import { Column, Entity, ForeignKey, PrimaryColumn, Index } from 'typeorm';
+import { FeederDevice } from './FeederDevice.js';
+
 export type AccessStatus = 'pending' | 'open' | 'closed' | 'interrupted';
 
+@Entity('access_sessions')
+@ForeignKey(() => FeederDevice, ['deviceId'], ['id'], { onDelete: 'RESTRICT' })
+@Index(['deviceId', 'accountingDay'])
 export class AccessSession {
+  @PrimaryColumn({ type: 'varchar', length: 120 })
+  readonly id: string;
+
+  @PrimaryColumn('uuid')
+  readonly deviceId: string;
+
+  @Column('text')
+  readonly tagUid: string;
+
+  @Column('uuid')
+  readonly petId: string;
+
+  @Column({ type: 'varchar', length: 10 })
+  readonly accountingDay: string;
+
   private _openedAt: Date | null = null;
   private _closedAt: Date | null = null;
   private _initialGrams: number | null = null;
@@ -10,11 +31,11 @@ export class AccessSession {
   private _issue: string | null = null;
 
   constructor(
-    public readonly id: string,
-    public readonly deviceId: string,
-    public readonly tagUid: string,
-    public readonly petId: string,
-    public readonly accountingDay: string,
+    id: string,
+    deviceId: string,
+    tagUid: string,
+    petId: string,
+    accountingDay: string,
   ) {
     if (![id, deviceId, tagUid, petId].every((value) => value.trim()))
       throw new Error(
@@ -30,28 +51,68 @@ export class AccessSession {
       throw new Error(
         'El día debe ser una fecha válida con formato YYYY-MM-DD.',
       );
+    this.id = id;
+    this.deviceId = deviceId;
+    this.tagUid = tagUid;
+    this.petId = petId;
+    this.accountingDay = accountingDay;
   }
 
+  @Column({ type: 'timestamptz', nullable: true })
   get openedAt(): Date | null {
     return this._openedAt ? new Date(this._openedAt) : null;
   }
+
+  private set openedAt(value: Date | null) {
+    this._openedAt = value;
+  }
+  @Column({ type: 'timestamptz', nullable: true })
   get closedAt(): Date | null {
     return this._closedAt ? new Date(this._closedAt) : null;
   }
+
+  private set closedAt(value: Date | null) {
+    this._closedAt = value;
+  }
+  @Column({ type: 'double precision', nullable: true })
   get initialGrams(): number | null {
     return this._initialGrams;
   }
+
+  private set initialGrams(value: number | null) {
+    this._initialGrams = value;
+  }
+  @Column({ type: 'double precision', nullable: true })
   get finalGrams(): number | null {
     return this._finalGrams;
   }
+
+  private set finalGrams(value: number | null) {
+    this._finalGrams = value;
+  }
+  @Column('boolean')
   get measurementValid(): boolean {
     return this._measurementValid;
   }
+
+  private set measurementValid(value: boolean) {
+    this._measurementValid = value;
+  }
+  @Column('text')
   get status(): AccessStatus {
     return this._status;
   }
+
+  private set status(value: AccessStatus) {
+    this._status = value;
+  }
+  @Column({ type: 'text', nullable: true })
   get issue(): string | null {
     return this._issue;
+  }
+
+  private set issue(value: string | null) {
+    this._issue = value;
   }
 
   open(initialGrams: number, at: Date): void {
