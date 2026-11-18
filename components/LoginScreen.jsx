@@ -62,7 +62,7 @@ export  function LoginScreen(){
                                     <TextInput
                                         placeholder='Contraseña'
                                         placeholderTextColor="#8C736C"
-                                        
+                                        secureTextEntry
                                         className="text-base text-[#381008] font-calm"
                                     />
                                 </View>

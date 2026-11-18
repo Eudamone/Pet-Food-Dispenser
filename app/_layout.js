@@ -1,11 +1,18 @@
-import {Slot,SplashScreen} from "expo-router"
+import {Slot,SplashScreen,Stack} from "expo-router"
 import {useFonts} from "expo-font"
 import {useEffect} from "react"
 import "../global.css"
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { configureReanimatedLogger, ReanimatedLogLevel } from "react-native-reanimated";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 // Previene que la pantalla de splash se oculte automáticamente
 SplashScreen.preventAutoHideAsync();
+
+configureReanimatedLogger({
+    level: ReanimatedLogLevel.warn,
+    strict: false,
+});
 
 export default function Layout() {
     const [loaded, error] = useFonts({
@@ -25,8 +32,27 @@ export default function Layout() {
 
 
     return (
-        <SafeAreaProvider>
-            <Slot></Slot>
-        </SafeAreaProvider>
+        <GestureHandlerRootView style={{flex: 1}}>
+            <SafeAreaProvider>
+                <Stack screenOptions={{headerShown:false}}>
+                    {/* Login: Deshabilitamos el gesto de volver atrás en iOS/Android */}
+                    <Stack.Screen
+                        name="login"
+                        options={{gestureEnabled:false}}
+                    />
+
+                    {/* Flujo de Tabs */}
+                    <Stack.Screen
+                        name="(tabs)"
+                        options={{gestureEnabled:false}}
+                    />
+                    
+                    <Stack.Screen
+                        name="createSchedule"
+                        options={{}}
+                    />
+                </Stack>
+            </SafeAreaProvider>
+        </GestureHandlerRootView>
     )
 }

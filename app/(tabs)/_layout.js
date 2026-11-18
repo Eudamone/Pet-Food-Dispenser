@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router";
 import { View, TouchableOpacity } from "react-native";
-import { HomeIcon, ClockRotate, Gear } from "../../components/Icons";
+import { HomeIcon, ClockRotate, Gear,Clock } from "../../components/Icons";
 
 function CustomTabBar({ state, descriptors, navigation }) {
   return (
@@ -70,6 +70,13 @@ export default function TabsLayout() {
         options={{
           title: "Inicio",
           tabBarIcon: ({ color }) => <HomeIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: "Horario",
+          tabBarIcon: ({ color }) => <Clock color={color} />,
         }}
       />
       <Tabs.Screen
