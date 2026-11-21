@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -13,7 +14,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ClaimFeederDto,
   CreateFeederDto,
+  DiscoveredFeederResponseDto,
   UpdateFeederDto,
   FeederResponseDto,
 } from '../dtos/feeder.dto.js';
@@ -33,10 +36,31 @@ export class FeedersController {
     return FeederResponseDto.from(await this.feeders.create(request.user, dto));
   }
 
+  @Post('claim')
+  async claim(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: ClaimFeederDto,
+  ) {
+    const claimed = await this.feeders.claimAvailableFeeder(request.user, dto);
+    if (!claimed) {
+      throw new NotFoundException(
+        'No hay ningún alimentador disponible para vincular.',
+      );
+    }
+    return FeederResponseDto.from(claimed);
+  }
+
   @Get()
   async findAll(@Req() request: AuthenticatedRequest) {
     return (await this.feeders.findAll(request.user)).map((item) =>
       FeederResponseDto.from(item),
+    );
+  }
+
+  @Get('discovered')
+  async listDiscovered() {
+    return (await this.feeders.listDiscovered()).map((item) =>
+      DiscoveredFeederResponseDto.from(item),
     );
   }
 

@@ -39,11 +39,13 @@ describe('API y autorización', () => {
     savePet: vi.fn(async (pet: Pet) => pet),
   };
   const devices = {
+    exists: vi.fn(async (id: string) => id === feederId),
     requireDevice: vi.fn(async () => undefined),
     findById: vi.fn(async (ownerId: string, id: string) =>
       ownerId === user.id && id === feederId ? feeder : null,
     ),
     listByOwner: vi.fn(async () => [feeder]),
+    create: vi.fn(async (device: FeederDevice) => device),
     saveDevice: vi.fn(async (device: FeederDevice) => device),
   };
   const plans = {
@@ -81,7 +83,10 @@ describe('API y autorización', () => {
       .overrideProvider(FEEDING_REPOSITORY)
       .useValue(plans)
       .overrideProvider(AuthService)
-      .useValue({ currentUser: vi.fn(async () => user) })
+      .useValue({
+        currentUser: vi.fn(async () => user),
+        createProfile: vi.fn(async () => user),
+      })
       .overrideProvider(DEVICE_MESSENGER)
       .useValue(connection)
       .compile();
@@ -300,5 +305,43 @@ describe('API y autorización', () => {
     expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
       'manual-req-01',
     ]);
+  });
+
+  it('expone alimentadores descubiertos por MQTT y permite onboarding en un paso', async () => {
+    const discoveredId = '99999999-9999-4999-8999-999999999999';
+    await deviceService.synchronize(discoveredId, {
+      id: 'obs-discovered-1',
+      kind: 'observation',
+      at: new Date(Date.now() - 1000).toISOString(),
+      gate: 'closed',
+      weight: 15,
+      fault: null,
+    });
+
+    const discovered = await request(app.getHttpServer())
+      .get('/feeders/discovered')
+      .set('Authorization', 'Bearer test')
+      .expect(200);
+    expect(discovered.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: discoveredId,
+          source: 'mqtt',
+          lastBowlGrams: 15,
+        }),
+      ]),
+    );
+
+    const onboarded = await request(app.getHttpServer())
+      .post('/onboarding')
+      .set('Authorization', 'Bearer test')
+      .send({
+        userName: 'Ana',
+        pet: { name: 'Toby', dailyLimitGrams: 120 },
+      })
+      .expect(201);
+    expect(onboarded.body.user.id).toBe(user.id);
+    expect(onboarded.body.feeder.id).toBe(feederId);
+    expect(onboarded.body.pet.name).toBe('Toby');
   });
 });

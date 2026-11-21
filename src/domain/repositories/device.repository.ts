@@ -22,6 +22,7 @@ export type PendingPlan = {
 };
 
 export interface DeviceRepository {
+  exists(id: string): Promise<boolean>;
   requireDevice(id: string): Promise<void>;
   pendingPlans(): Promise<PendingPlan[]>;
   confirmPlan(id: string, revision: number): Promise<void>;

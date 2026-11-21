@@ -16,6 +16,10 @@ import { MemoryDatabase } from './memory.database.js';
 export class MemoryDeviceRepository implements DeviceRepository {
   constructor(private readonly db: MemoryDatabase) {}
 
+  async exists(id: string): Promise<boolean> {
+    return this.db.devices.has(id);
+  }
+
   async requireDevice(id: string): Promise<void> {
     if (!this.db.devices.has(id))
       throw new NotFoundException('No se encontró el alimentador.');

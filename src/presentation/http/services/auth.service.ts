@@ -19,8 +19,7 @@ export class AuthService {
 
   async currentUser(token: string): Promise<User> {
     const url = process.env.SUPABASE_URL;
-    const apiKey =
-      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
+    const apiKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 
     if (!url || !apiKey) {
       throw new ServiceUnavailableException(

@@ -17,17 +17,59 @@ import {
   USER_REPOSITORY,
   type UserRepository,
 } from '../../../domain/repositories/user.repository.js';
+import { DeviceService } from './device.service.js';
+
+export type PetRegistrationResult = {
+  readonly pet: Pet;
+  readonly tag: RfidTag | null;
+  readonly authorizedFeederId: string | null;
+};
 
 @Injectable()
 export class PetService {
   constructor(
     @Inject(PET_REPOSITORY) private readonly pets: PetRepository,
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+    private readonly devices: DeviceService,
   ) {}
 
   async registerPet(user: User, dto: CreatePetDto): Promise<Pet> {
+    const result = await this.registerPetWithLinks(user, dto);
+    return result.pet;
+  }
+
+  async registerPetWithLinks(
+    user: User,
+    dto: CreatePetDto,
+  ): Promise<PetRegistrationResult> {
     await this.ensureProfile(user.id);
-    return this.pets.savePet(this.buildPet(randomUUID(), user.id, dto));
+    const pet = await this.pets.savePet(this.buildPet(randomUUID(), user.id, dto));
+
+    let tag: RfidTag | null = null;
+    if (dto.tagUid) {
+      const cleanUid = dto.tagUid.trim().toUpperCase();
+      const existing = await this.pets.findTag(user.id, cleanUid);
+      const previousPetId = existing?.petId ?? null;
+      if (!existing) {
+        await this.pets.registerTag(new RfidTag(cleanUid, user.id));
+      }
+      tag = await this.pets.replaceAssignment(user.id, pet.id, cleanUid);
+      if (previousPetId && previousPetId !== pet.id) {
+        await this.devices.syncConfigurationForPet(user.id, previousPetId);
+      }
+    }
+
+    let authorizedFeederId: string | null = null;
+    if (dto.autoAuthorizeFeeder !== false) {
+      const feeder = await this.devices.autoAuthorizePet(
+        user,
+        pet.id,
+        dto.feederId,
+      );
+      authorizedFeederId = feeder?.id ?? null;
+    }
+
+    return { pet, tag, authorizedFeederId };
   }
 
   findAll(user: User): Promise<Pet[]> {
@@ -58,7 +100,11 @@ export class PetService {
         day: current.birthDay,
       },
     });
-    return this.pets.savePet(pet);
+    const saved = await this.pets.savePet(pet);
+    if (current.dailyLimitGrams !== saved.dailyLimitGrams) {
+      await this.devices.syncConfigurationForPet(user.id, saved.id);
+    }
+    return saved;
   }
 
   async setDailyLimit(user: User, id: string, grams: number): Promise<Pet> {
@@ -86,18 +132,30 @@ export class PetService {
     return tag;
   }
 
-  assignTag(user: User, petId: string, uid: string): Promise<RfidTag> {
-    return this.pets.replaceAssignment(
+  async assignTag(user: User, petId: string, uid: string): Promise<RfidTag> {
+    const cleanUid = uid.trim().toUpperCase();
+    const previous = await this.pets.findTag(user.id, cleanUid);
+    const assigned = await this.pets.replaceAssignment(
       user.id,
       petId,
-      uid.trim().toUpperCase(),
+      cleanUid,
     );
+    if (previous?.petId && previous.petId !== petId) {
+      await this.devices.syncConfigurationForPet(user.id, previous.petId);
+    }
+    await this.devices.syncConfigurationForPet(user.id, petId);
+    return assigned;
   }
 
   async unassignTag(user: User, uid: string): Promise<RfidTag> {
     const tag = await this.findTag(user, uid);
+    const previousPetId = tag.petId;
     tag.unassign();
-    return this.pets.unassignTag(user.id, tag.uid);
+    const updated = await this.pets.unassignTag(user.id, tag.uid);
+    if (previousPetId) {
+      await this.devices.syncConfigurationForPet(user.id, previousPetId);
+    }
+    return updated;
   }
 
   async setTagActive(
@@ -108,7 +166,11 @@ export class PetService {
     const tag = await this.findTag(user, uid);
     if (active) tag.activate();
     else tag.deactivate();
-    return this.pets.setTagActive(user.id, tag.uid, tag.active);
+    const updated = await this.pets.setTagActive(user.id, tag.uid, tag.active);
+    if (updated.petId) {
+      await this.devices.syncConfigurationForPet(user.id, updated.petId);
+    }
+    return updated;
   }
 
   private async ensureProfile(userId: string): Promise<void> {

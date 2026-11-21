@@ -16,6 +16,7 @@ import {
   UpdatePetDto,
   SetDailyLimitDto,
   PetResponseDto,
+  PetRegistrationResponseDto,
 } from '../dtos/pet.dto.js';
 import { PetService } from '../services/pet.service.js';
 import { AuthGuard, type AuthenticatedRequest } from './auth.guard.js';
@@ -30,7 +31,12 @@ export class PetsController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreatePetDto,
   ) {
-    return PetResponseDto.from(await this.pets.registerPet(request.user, dto));
+    const result = await this.pets.registerPetWithLinks(request.user, dto);
+    return PetRegistrationResponseDto.fromRegistration(
+      result.pet,
+      result.tag,
+      result.authorizedFeederId,
+    );
   }
 
   @Get()

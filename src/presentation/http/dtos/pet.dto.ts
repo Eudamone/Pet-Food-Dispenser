@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -7,6 +8,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   Matches,
   Max,
   Min,
@@ -14,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Pet } from '../../../domain/entities/Pet.js';
+import type { RfidTag } from '../../../domain/entities/RfidTag.js';
 
 export class BirthDateDto {
   @IsOptional()
@@ -56,6 +59,20 @@ export class CreatePetDto {
   @ValidateNested()
   @Type(() => BirthDateDto)
   birth?: BirthDateDto;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
+  tagUid?: string;
+
+  @IsOptional()
+  @IsUUID()
+  feederId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  autoAuthorizeFeeder?: boolean;
 }
 
 export class UpdatePetDto {
@@ -108,6 +125,30 @@ export class PetResponseDto {
       birthYear: pet.birthYear,
       birthMonth: pet.birthMonth,
       birthDay: pet.birthDay,
+    };
+  }
+}
+
+export class PetRegistrationResponseDto extends PetResponseDto {
+  tagUid: string | null;
+  authorizedFeederId: string | null;
+
+  static fromRegistration(
+    pet: Pet,
+    tag: RfidTag | null,
+    authorizedFeederId: string | null,
+  ): PetRegistrationResponseDto {
+    return {
+      id: pet.id,
+      ownerId: pet.ownerId,
+      name: pet.name,
+      species: pet.species ?? null,
+      dailyLimitGrams: pet.dailyLimitGrams ?? null,
+      birthYear: pet.birthYear,
+      birthMonth: pet.birthMonth,
+      birthDay: pet.birthDay,
+      tagUid: tag?.uid ?? null,
+      authorizedFeederId,
     };
   }
 }

@@ -26,6 +26,10 @@ export class DatabaseDeviceRepository implements DeviceRepository {
     private readonly store: Repository<FeederDeviceModel>,
   ) {}
 
+  async exists(id: string): Promise<boolean> {
+    return this.store.existsBy({ id });
+  }
+
   async requireDevice(id: string): Promise<void> {
     if (!(await this.store.existsBy({ id })))
       throw new NotFoundException('No se encontró el alimentador.');

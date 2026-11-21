@@ -4,6 +4,7 @@
 /docs
 /info
 
+
 *.tsbuildinfo
 
 logs
@@ -47,6 +48,7 @@ pids
 *.seed
 *.pid.lock
 
+firmware.txt.txt
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 AGENTS.md
