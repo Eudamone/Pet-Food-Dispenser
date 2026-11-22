@@ -2,7 +2,9 @@ name: pet-feeder-mqtt
 services:
   broker:
     image: eclipse-mosquitto:2.0.22
+    container_name: pet-feeder-mqtt-broker
+    restart: unless-stopped
     ports:
-      - "127.0.0.1:1883:1883"
+      - "${MQTT_PORT:-1883}:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro

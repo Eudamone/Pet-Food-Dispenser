@@ -1,5 +1,5 @@
-import { Pet } from '../dist/domain/Pet.js';
-import { RfidTag } from '../dist/domain/RfidTag.js';
+import { Pet } from '../dist/domain/entities/Pet.js';
+import { RfidTag } from '../dist/domain/entities/RfidTag.js';
 
 describe('Reglas de mascota y collar', () => {
   const today = new Date(2026, 10, 5);

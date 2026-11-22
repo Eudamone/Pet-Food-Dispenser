@@ -2,27 +2,32 @@ import { Test } from '@nestjs/testing';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PresentationModule } from '../dist/presentation/presentation.module.js';
-import { RepositoriesModule } from '../dist/repositories/repositories.module.js';
-import { PetService } from '../dist/services/pet.service.js';
-import { AuthService } from '../dist/services/auth.service.js';
-import { DeviceService } from '../dist/services/device.service.js';
-import { DeviceConnection } from '../dist/services/device-connection.js';
-import { AccessSession } from '../dist/domain/AccessSession.js';
-import { Pet } from '../dist/domain/Pet.js';
-import { UserRepository } from '../dist/repositories/user.repository.js';
-import { PetRepository } from '../dist/repositories/pet.repository.js';
-import { DeviceRepository } from '../dist/repositories/device.repository.js';
-import { FeedingRepository } from '../dist/repositories/feeding.repository.js';
-import { FeederDevice } from '../dist/domain/FeederDevice.js';
-import { User } from '../dist/domain/User.js';
+import { PersistenceModule } from '../dist/infrastructure/persistence/persistence.module.js';
+import { PetService } from '../dist/presentation/http/services/pet.service.js';
+import { AuthService } from '../dist/presentation/http/services/auth.service.js';
+import { DeviceService } from '../dist/presentation/http/services/device.service.js';
+import { AccessSession } from '../dist/domain/entities/AccessSession.js';
+import { Pet } from '../dist/domain/entities/Pet.js';
+import { USER_REPOSITORY } from '../dist/domain/repositories/user.repository.js';
+import { PET_REPOSITORY } from '../dist/domain/repositories/pet.repository.js';
+import { DEVICE_REPOSITORY } from '../dist/domain/repositories/device.repository.js';
+import {
+  FEEDING_REPOSITORY,
+  type PlanRevision,
+} from '../dist/domain/repositories/feeding.repository.js';
+import { DEVICE_MESSENGER } from '../dist/domain/ports/device-messenger.port.js';
+import { FeederDevice } from '../dist/domain/entities/FeederDevice.js';
+import { User } from '../dist/domain/entities/User.js';
+import type { FeedingPlan } from '../dist/domain/entities/FeedingPlan.js';
 
 describe('API y autorización', () => {
   let app: INestApplication;
   let deviceService: DeviceService;
   const connection = {
-    readResults: vi.fn(),
-    confirmResults: vi.fn(),
     connected: false,
+    sendConfiguration: vi.fn(),
+    sendManualDispense: vi.fn(),
+    confirmResults: vi.fn(),
   };
   const user = new User('owner-1', 'Ana', 'ana@example.com');
   const feederId = 'ae4db682-69a8-41ce-a90f-c6d29c9ce994';
@@ -31,48 +36,58 @@ describe('API y autorización', () => {
   const pets = {
     listByOwner: vi.fn(async () => []),
     findById: vi.fn(async (): Promise<Pet | null> => null),
-    savePet: vi.fn(async (pet) => pet),
+    savePet: vi.fn(async (pet: Pet) => pet),
   };
   const devices = {
+    exists: vi.fn(async (id: string) => id === feederId),
     requireDevice: vi.fn(async () => undefined),
-    findById: vi.fn(async (ownerId, id) =>
+    findById: vi.fn(async (ownerId: string, id: string) =>
       ownerId === user.id && id === feederId ? feeder : null,
     ),
+    listByOwner: vi.fn(async () => [feeder]),
+    create: vi.fn(async (device: FeederDevice) => device),
+    saveDevice: vi.fn(async (device: FeederDevice) => device),
   };
   const plans = {
     saveAccess: vi.fn(async (_session: AccessSession) => undefined),
+    saveDispensing: vi.fn(async () => undefined),
     listAccess: vi.fn(async (): Promise<AccessSession[]> => []),
+    listDispensing: vi.fn(async () => []),
     listAccessByDay: vi.fn(async (): Promise<AccessSession[]> => []),
-    findPlanByDevice: vi.fn(async () => null),
-    savePlan: vi.fn(async (_ownerId, _plan, revision) => ({
-      desiredRevision: revision + 1,
-      appliedRevision: 0,
-    })),
+    findPlanByDevice: vi.fn(async (): Promise<FeedingPlan | null> => null),
+    savePlan: vi.fn(
+      async (
+        _ownerId: string,
+        _plan: FeedingPlan,
+        revision: number,
+      ): Promise<PlanRevision> => ({
+        desiredRevision: revision + 1,
+        appliedRevision: 0,
+      }),
+    ),
   };
 
   beforeAll(async () => {
     const fixture = await Test.createTestingModule({
-      imports: [PresentationModule],
+      imports: [
+        PersistenceModule.register({ driver: 'memory' }),
+        PresentationModule,
+      ],
     })
-      .overrideModule(RepositoriesModule)
-      .useModule({
-        module: class TestRepositoriesModule {},
-        providers: [
-          { provide: UserRepository, useValue: users },
-          { provide: PetRepository, useValue: pets },
-          { provide: DeviceRepository, useValue: devices },
-          { provide: FeedingRepository, useValue: plans },
-        ],
-        exports: [
-          UserRepository,
-          PetRepository,
-          DeviceRepository,
-          FeedingRepository,
-        ],
-      })
+      .overrideProvider(USER_REPOSITORY)
+      .useValue(users)
+      .overrideProvider(PET_REPOSITORY)
+      .useValue(pets)
+      .overrideProvider(DEVICE_REPOSITORY)
+      .useValue(devices)
+      .overrideProvider(FEEDING_REPOSITORY)
+      .useValue(plans)
       .overrideProvider(AuthService)
-      .useValue({ currentUser: vi.fn(async () => user) })
-      .overrideProvider(DeviceConnection)
+      .useValue({
+        currentUser: vi.fn(async () => user),
+        createProfile: vi.fn(async () => user),
+      })
+      .overrideProvider(DEVICE_MESSENGER)
       .useValue(connection)
       .compile();
     expect(fixture.get(PetService)).toBeDefined();
@@ -106,9 +121,6 @@ describe('API y autorización', () => {
       status: 'closed',
       openedAt: '2026-11-08T15:00:00Z',
       closedAt: '2026-11-08T15:01:00Z',
-      initialGrams: 30,
-      finalGrams: 18,
-      tolerance: 2,
     };
     plans.saveAccess.mockRejectedValueOnce(new Error('Fallo de escritura'));
     await expect(deviceService.synchronize(feederId, event)).rejects.toThrow(
@@ -118,7 +130,8 @@ describe('API y autorización', () => {
 
     await deviceService.synchronize(feederId, event);
     const [visit] = plans.saveAccess.mock.calls.at(-1)!;
-    expect(visit.consumedGrams()).toBe(12);
+    expect(visit.status).toBe('closed');
+    expect(visit).not.toHaveProperty('initialGrams');
     expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
       event.id,
     ]);
@@ -129,7 +142,7 @@ describe('API y autorización', () => {
       .set('Authorization', 'Bearer test')
       .expect(200)
       .expect(({ body }) =>
-        expect(body[0]).toMatchObject({ id: event.id, consumedGrams: 12 }),
+        expect(body[0]).toMatchObject({ id: event.id, consumedGrams: null }),
       );
 
     pets.findById.mockResolvedValueOnce(new Pet(event.petId, user.id, 'Luna'));
@@ -140,7 +153,12 @@ describe('API y autorización', () => {
       .set('Authorization', 'Bearer test')
       .expect(200)
       .expect(({ body }) =>
-        expect(body).toMatchObject({ measuredGrams: 12, unknownSessions: 0 }),
+        expect(body).toMatchObject({
+          measuredGrams: null,
+          remainingGrams: null,
+          sessionCount: 1,
+          budgetStatus: 'unavailable',
+        }),
       );
   });
 
@@ -231,5 +249,97 @@ describe('API y autorización', () => {
       'owner-1',
       '11111111-1111-4111-8111-111111111111',
     );
+  });
+
+  it('autoriza y revoca mascotas en el alimentador e incrementa desiredRevision', async () => {
+    const petId = '22222222-2222-4222-8222-222222222222';
+    const pet = new Pet(petId, user.id, 'Max');
+    pet.setDailyLimit(80);
+    pets.findById.mockResolvedValueOnce(pet);
+
+    const authResponse = await request(app.getHttpServer())
+      .put(`/feeders/${feederId}/pets/${petId}`)
+      .set('Authorization', 'Bearer test')
+      .expect(200);
+    expect(authResponse.body.authorizedPetIds).toContain(petId);
+    expect(authResponse.body.desiredRevision).toBeGreaterThan(0);
+
+    const revokeResponse = await request(app.getHttpServer())
+      .delete(`/feeders/${feederId}/pets/${petId}`)
+      .set('Authorization', 'Bearer test')
+      .expect(200);
+    expect(revokeResponse.body.authorizedPetIds).not.toContain(petId);
+  });
+
+  it('despacha solicitud de dispensación manual al firmware y sincroniza el resultado', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ targetGrams: 35, requestId: 'manual-req-01' })
+      .expect(202);
+    expect(response.body).toMatchObject({
+      requestId: 'manual-req-01',
+      deviceId: feederId,
+      targetGrams: 35,
+      status: 'pending',
+    });
+    expect(connection.sendManualDispense).toHaveBeenCalledWith(
+      feederId,
+      expect.objectContaining({
+        kind: 'manualDispense',
+        requestId: 'manual-req-01',
+        targetGrams: 35,
+      }),
+    );
+
+    await deviceService.synchronize(feederId, {
+      id: 'manual-req-01',
+      kind: 'dispensing',
+      source: 'manual',
+      targetGrams: 35,
+      startedAt: '2026-11-19T14:00:00Z',
+      status: 'completed',
+      finishedAt: '2026-11-19T14:00:25Z',
+    });
+    expect(plans.saveDispensing).toHaveBeenCalled();
+    expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
+      'manual-req-01',
+    ]);
+  });
+
+  it('expone alimentadores descubiertos por MQTT y permite onboarding en un paso', async () => {
+    const discoveredId = '99999999-9999-4999-8999-999999999999';
+    await deviceService.synchronize(discoveredId, {
+      id: 'obs-discovered-1',
+      kind: 'observation',
+      at: new Date(Date.now() - 1000).toISOString(),
+      gate: 'closed',
+      fault: null,
+    });
+
+    const discovered = await request(app.getHttpServer())
+      .get('/feeders/discovered')
+      .set('Authorization', 'Bearer test')
+      .expect(200);
+    expect(discovered.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: discoveredId,
+          source: 'mqtt',
+        }),
+      ]),
+    );
+
+    const onboarded = await request(app.getHttpServer())
+      .post('/onboarding')
+      .set('Authorization', 'Bearer test')
+      .send({
+        userName: 'Ana',
+        pet: { name: 'Toby', dailyLimitGrams: 120 },
+      })
+      .expect(201);
+    expect(onboarded.body.user.id).toBe(user.id);
+    expect(onboarded.body.feeder.id).toBe(feederId);
+    expect(onboarded.body.pet.name).toBe('Toby');
   });
 });

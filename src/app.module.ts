@@ -1,18 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { PersistenceModule } from './infrastructure/persistence/persistence.module.js';
 import { PresentationModule } from './presentation/presentation.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      url: process.env.DATABASE_URL,
-      schema: process.env.DB_SCHEMA,
-      autoLoadEntities: true,
-      entitySkipConstructor: true,
-      synchronize: process.env.DB_SYNCHRONIZE === 'true',
+    PersistenceModule.register({
+      driver: process.env.PERSISTENCE_DRIVER === 'memory' ? 'memory' : 'db',
     }),
     PresentationModule,
   ],
