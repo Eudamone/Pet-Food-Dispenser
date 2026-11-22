@@ -70,7 +70,7 @@ export function CreateScheduleScreen(){
 
             <View className="bg-[#FFFBE8] mt-4 pl-4 pr-4 pt-4 pb-4 rounded-3xl gap-y-3">
                 <Text className="font-calm">
-                    PORCIÓN
+                    PORCIÓN PROGRAMADA
                 </Text>
 
                 <Counter
@@ -82,7 +82,7 @@ export function CreateScheduleScreen(){
 
                 <View className="bg-[#FFC93C] rounded-3xl items-center min-h-8 justify-center">
                     <Text className="font-calm text-sm">
-                        Total diario: 80g · dentro de lo recomendado
+                        Cantidad solicitada por horario
                     </Text>
                 </View>
             </View>

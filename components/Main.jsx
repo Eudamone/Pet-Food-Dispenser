@@ -1,7 +1,6 @@
 import {View,Text,Pressable} from "react-native"
 import { Bell,Pause } from "./Icons";
 import { UserAvatar } from "./UserAvatar";
-import CircularProgress from "./CircularProgress";
 import {useRouter} from "expo-router"
 
 export function Main() {
@@ -39,17 +38,9 @@ export function Main() {
                     </View>
                 </View>
                 <View className="flex flex-row pt-2 pl-4 pr-4 pb-0 gap-x-3">
-                    <View className="flex-1 p-3 bg-[#5E2593] rounded-3xl min-w-20 min-h-10">
-                        <Text className="font-calm text-white">Plato</Text>
-                        <Text className="font-titan text-white text-3xl">12 g</Text>
-                    </View>
                     <View className="flex-1 p-3 bg-[#5E2593] rounded-3xl min-w-24 min-h-10">
                         <Text className="font-calm text-white">Compuerta</Text>
                         <Text className="font-titan text-white text-2xl">Cerrada</Text>
-                    </View>
-                    <View className="flex-1 p-3 bg-[#5E2593] rounded-3xl min-w-20 min-h-10">
-                        <Text className="font-calm text-white">Depósito</Text>
-                        <Text className="font-titan text-white text-3xl">80%</Text>
                     </View>
                 </View>
                 <View className="flex flex-row pt-2 pl-5 pr-4 pb-2">
@@ -62,13 +53,14 @@ export function Main() {
                     <Text className="font-bold text-[#3A1508] text-lg tracking-wider">PRÓXIMA COMIDA</Text>
                     <Text className="font-titan text-7xl my-1">18:00</Text>
                     <View className="w-full border-t-2 border-dashed border-[#3A1508]"></View>
-                    <Text className="font-calm text-lg">25g · Pelusa</Text>
+                    <Text className="font-calm text-lg">Porción programada · 25 g</Text>
                 </View>
-                <View className="flex bg-[#fff] rounded-3xl pl-6 pr-6 pt-4 pb-4 items-center shadow-md">
-                    <CircularProgress size={110} strokeWidth={16} progress={0.38} text="48g"></CircularProgress>
-                    <Text className="pt-1">de 80g hoy</Text>
-                    <Text>Restan 35g</Text>
-                </View>
+                <Pressable
+                    className="flex bg-[#fff] rounded-3xl p-4 items-center justify-center shadow-md"
+                    onPress={() => router.push('/(tabs)/records')}
+                >
+                    <Text className="font-calm text-[#3A1508]">Ver historial</Text>
+                </Pressable>
             </View>
 
             <View className="flex-row items-center pt-5 gap-x-3">

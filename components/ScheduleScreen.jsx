@@ -52,7 +52,7 @@ export function ScheduleScreen(){
                 
                 <View className="pl-4 pr-4 pb-4 pt-2">
                     <Text className="font-calm text-white">
-                        Recomendado 80g · límite por comida 40g
+                        Porciones programadas · máximo por horario 40 g
                     </Text>
                 </View>
             </View>
