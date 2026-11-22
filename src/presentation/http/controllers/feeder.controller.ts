@@ -17,6 +17,7 @@ import {
   ClaimFeederDto,
   CreateFeederDto,
   DiscoveredFeederResponseDto,
+  ScannedRfidTagResponseDto,
   UpdateFeederDto,
   FeederResponseDto,
 } from '../dtos/feeder.dto.js';
@@ -92,6 +93,16 @@ export class FeedersController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.feeders.delete(request.user, id);
+  }
+
+  @Get(':id/rfid-scanned')
+  async listScannedTags(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return (await this.feeders.listScannedTags(request.user, id)).map((item) =>
+      ScannedRfidTagResponseDto.from(item),
+    );
   }
 
   @Put(':id/pets/:petId')

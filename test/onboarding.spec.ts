@@ -166,4 +166,80 @@ describe('Descubrimiento MQTT, auto-vinculación y onboarding', () => {
     );
     expect(secondProfile.linkedFeeder).toBeNull();
   });
+
+  it('captura tags RFID escaneados por MQTT (rfidScanned) y permite auto-vincularlos al crear mascota', async () => {
+    const feederId = '123e4567-e89b-42d3-a456-426614174000';
+    const identity = new User(
+      'user-4',
+      'carla@example.com',
+      'carla@example.com',
+    );
+
+    // 1. El ESP32 anuncia su presencia y luego escanea un collar 125 kHz desconocido.
+    await deviceService.synchronize(feederId, {
+      id: 'obs-pilot-1',
+      kind: 'observation',
+      at: new Date(Date.now() - 2000).toISOString(),
+      gate: 'closed',
+      weight: 0,
+      fault: null,
+    });
+    await deviceService.synchronize(feederId, {
+      id: 'scan-pilot-1',
+      kind: 'rfidScanned',
+      tagUid: '0a1b2c3d4e',
+      at: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(messenger.confirmResults).toHaveBeenCalledWith(feederId, [
+      'scan-pilot-1',
+    ]);
+
+    // 2. La usuaria crea perfil y reclama automáticamente el comedero.
+    const profile = await onboardingService.createProfileWithAutoLink(identity, {
+      name: 'Carla',
+    });
+    expect(profile.linkedFeeder?.id).toBe(feederId);
+
+    // 3. La app consulta los tags escaneados recientemente en su comedero.
+    const scannedBefore = await deviceService.listScannedTags(
+      profile.user,
+      feederId,
+    );
+    expect(scannedBefore).toHaveLength(1);
+    expect(scannedBefore[0]).toMatchObject({
+      tagUid: '0A1B2C3D4E',
+      alreadyRegistered: false,
+      assignedPetId: null,
+    });
+
+    // 4. La app crea la mascota usando autoLinkScannedTag: true (sin digitar el UID).
+    const petResult = await petService.registerPetWithLinks(profile.user, {
+      name: 'Nala',
+      dailyLimitGrams: 150,
+      autoLinkScannedTag: true,
+    });
+    expect(petResult.tag?.uid).toBe('0A1B2C3D4E');
+    expect(petResult.tag?.petId).toBe(petResult.pet.id);
+    expect(petResult.authorizedFeederId).toBe(feederId);
+
+    // El tag asignado se limpia de la bandeja de escaneo reciente.
+    expect(
+      await deviceService.listScannedTags(profile.user, feederId),
+    ).toHaveLength(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(messenger.sendConfiguration).toHaveBeenCalledWith(
+      feederId,
+      expect.objectContaining({
+        revision: 1,
+        authorizedPets: [
+          {
+            petId: petResult.pet.id,
+            tagUid: '0A1B2C3D4E',
+            dailyLimitGrams: 150,
+          },
+        ],
+      }),
+    );
+  });
 });

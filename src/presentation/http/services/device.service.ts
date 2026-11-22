@@ -55,13 +55,29 @@ export type ClaimFeederOptions = {
   readonly maxBowlGrams?: number;
 };
 
+export type ScannedRfidTag = {
+  readonly tagUid: string;
+  readonly scannedAt: Date;
+  readonly alreadyRegistered: boolean;
+  readonly assignedPetId: string | null;
+};
+
+type ScannedRfidEntry = {
+  readonly tagUid: string;
+  readonly scannedAt: Date;
+  readonly receivedAtMs: number;
+};
+
 const FALLBACK_FEEDER_NAME = 'Comedero Principal';
 const FALLBACK_MAX_BOWL_GRAMS = 500;
+const SCANNED_RFID_TTL_MS = 60_000;
+const MAX_SCANNED_TAGS_PER_DEVICE = 5;
 
 @Injectable()
 export class DeviceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DeviceService.name);
   private readonly discovered = new Map<string, DiscoveredFeeder>();
+  private readonly scannedTags = new Map<string, Map<string, ScannedRfidEntry>>();
   private timer?: ReturnType<typeof setInterval>;
   private sending = false;
 
@@ -141,6 +157,11 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
             event.fault,
           );
         }
+        break;
+      case 'rfidScanned':
+        if (event.at.getTime() > Date.now() + 300000)
+          throw new Error('Fecha del equipo adelantada.');
+        this.recordScannedTag(normalizedId, event.tagUid, event.at);
         break;
       case 'access':
         await this.feeders.requireDevice(normalizedId);
@@ -394,6 +415,109 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       status: 'pending' as const,
       dispatched: this.messenger.connected,
     };
+  }
+
+  async listScannedTags(user: User, deviceId: string): Promise<ScannedRfidTag[]> {
+    const device = await this.getDevice(user, deviceId);
+    const entries = this.getFreshScannedEntries(device.id);
+    if (entries.length === 0) return [];
+
+    const ownedTags = await this.pets.listTagsByOwner(user.id);
+    const ownedMap = new Map(ownedTags.map((tag) => [tag.uid, tag]));
+
+    return entries.map((entry) => {
+      const existing = ownedMap.get(entry.tagUid);
+      return {
+        tagUid: entry.tagUid,
+        scannedAt: new Date(entry.scannedAt),
+        alreadyRegistered: Boolean(existing),
+        assignedPetId: existing?.petId ?? null,
+      };
+    });
+  }
+
+  async findLatestUnassignedScannedTag(
+    user: User,
+    explicitFeederId?: string,
+  ): Promise<string | null> {
+    let targetId: string | null = null;
+    if (explicitFeederId) {
+      targetId = explicitFeederId.trim().toLowerCase();
+    } else {
+      const owned = await this.feeders.listByOwner(user.id);
+      if (owned.length === 1) targetId = owned[0].id;
+    }
+    if (!targetId) return null;
+
+    const recent = await this.listScannedTags(user, targetId);
+    const candidate = recent.find((item) => item.assignedPetId === null);
+    return candidate?.tagUid ?? null;
+  }
+
+  async clearScannedTagForOwner(ownerId: string, tagUid: string): Promise<void> {
+    const cleanUid = tagUid.trim().toUpperCase();
+    const owned = await this.feeders.listByOwner(ownerId);
+    for (const device of owned) {
+      const bucket = this.scannedTags.get(device.id);
+      if (!bucket) continue;
+      bucket.delete(cleanUid);
+      if (bucket.size === 0) this.scannedTags.delete(device.id);
+    }
+  }
+
+  private recordScannedTag(deviceId: string, tagUid: string, at: Date): void {
+    const nowMs = Date.now();
+    let bucket = this.scannedTags.get(deviceId);
+    if (!bucket) {
+      bucket = new Map<string, ScannedRfidEntry>();
+      this.scannedTags.set(deviceId, bucket);
+    }
+    this.pruneScannedBucket(bucket, nowMs);
+
+    const previous = bucket.get(tagUid);
+    if (previous && at < previous.scannedAt) return;
+    bucket.set(tagUid, {
+      tagUid,
+      scannedAt: new Date(at),
+      receivedAtMs: nowMs,
+    });
+
+    if (bucket.size > MAX_SCANNED_TAGS_PER_DEVICE) {
+      const ordered = [...bucket.values()].sort(
+        (a, b) =>
+          b.scannedAt.getTime() - a.scannedAt.getTime() ||
+          b.receivedAtMs - a.receivedAtMs,
+      );
+      for (const stale of ordered.slice(MAX_SCANNED_TAGS_PER_DEVICE)) {
+        bucket.delete(stale.tagUid);
+      }
+    }
+  }
+
+  private getFreshScannedEntries(deviceId: string): ScannedRfidEntry[] {
+    const bucket = this.scannedTags.get(deviceId);
+    if (!bucket) return [];
+    this.pruneScannedBucket(bucket, Date.now());
+    if (bucket.size === 0) {
+      this.scannedTags.delete(deviceId);
+      return [];
+    }
+    return [...bucket.values()].sort(
+      (a, b) =>
+        b.scannedAt.getTime() - a.scannedAt.getTime() ||
+        b.receivedAtMs - a.receivedAtMs,
+    );
+  }
+
+  private pruneScannedBucket(
+    bucket: Map<string, ScannedRfidEntry>,
+    nowMs: number,
+  ): void {
+    for (const [uid, entry] of bucket) {
+      if (nowMs - entry.receivedAtMs > SCANNED_RFID_TTL_MS) {
+        bucket.delete(uid);
+      }
+    }
   }
 
   private recordDiscoveredObservation(

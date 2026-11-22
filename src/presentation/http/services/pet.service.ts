@@ -46,14 +46,20 @@ export class PetService {
     const pet = await this.pets.savePet(this.buildPet(randomUUID(), user.id, dto));
 
     let tag: RfidTag | null = null;
-    if (dto.tagUid) {
-      const cleanUid = dto.tagUid.trim().toUpperCase();
-      const existing = await this.pets.findTag(user.id, cleanUid);
+    const resolvedTagUid =
+      dto.tagUid?.trim().toUpperCase() ||
+      (dto.autoLinkScannedTag
+        ? await this.devices.findLatestUnassignedScannedTag(user, dto.feederId)
+        : null);
+
+    if (resolvedTagUid) {
+      const existing = await this.pets.findTag(user.id, resolvedTagUid);
       const previousPetId = existing?.petId ?? null;
       if (!existing) {
-        await this.pets.registerTag(new RfidTag(cleanUid, user.id));
+        await this.pets.registerTag(new RfidTag(resolvedTagUid, user.id));
       }
-      tag = await this.pets.replaceAssignment(user.id, pet.id, cleanUid);
+      tag = await this.pets.replaceAssignment(user.id, pet.id, resolvedTagUid);
+      await this.devices.clearScannedTagForOwner(user.id, resolvedTagUid);
       if (previousPetId && previousPetId !== pet.id) {
         await this.devices.syncConfigurationForPet(user.id, previousPetId);
       }
@@ -140,6 +146,7 @@ export class PetService {
       petId,
       cleanUid,
     );
+    await this.devices.clearScannedTagForOwner(user.id, cleanUid);
     if (previous?.petId && previous.petId !== petId) {
       await this.devices.syncConfigurationForPet(user.id, previous.petId);
     }
