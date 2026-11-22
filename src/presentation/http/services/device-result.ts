@@ -12,6 +12,12 @@ type DeviceResult =
       gate: GateState;
       fault: string | null;
     }
+  | {
+      id: string;
+      kind: 'rfidScanned';
+      tagUid: string;
+      at: Date;
+    }
   | { id: string; kind: 'access'; record: AccessSession }
   | { id: string; kind: 'dispensing'; record: DispensingRecord };
 
@@ -83,6 +89,17 @@ export function readDeviceResult(
         fault: data.fault == null ? null : text(data.fault, 'fallo'),
       };
     }
+    case 'rfidScanned': {
+      const tagUid = text(data.tagUid, 'tag').trim().toUpperCase();
+      if (!/^[A-Z0-9:_-]+$/.test(tagUid))
+        throw new Error('Identificador de tag inválido.');
+      return {
+        id,
+        kind: data.kind,
+        tagUid,
+        at: instant(data.at),
+      };
+    }
     case 'access': {
       const petId = text(data.petId, 'mascota', 36);
       if (!isUUID(petId)) throw new Error('Identificador de mascota inválido.');
@@ -95,7 +112,7 @@ export function readDeviceResult(
       );
       if (data.openedAt != null) session.open(instant(data.openedAt));
       if (data.status === 'closed') {
-        session.close(instant(data.closedAt));
+        session.close(data.closedAt == null ? null : instant(data.closedAt));
       } else if (data.status === 'interrupted') {
         session.markInterrupted(text(data.issue, 'motivo'));
       } else {

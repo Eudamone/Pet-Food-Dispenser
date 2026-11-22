@@ -35,6 +35,7 @@ describe('API y autorización', () => {
   const users = { findById: vi.fn(async () => user) };
   const pets = {
     listByOwner: vi.fn(async () => []),
+    listTagsByOwner: vi.fn(async () => []),
     findById: vi.fn(async (): Promise<Pet | null> => null),
     savePet: vi.fn(async (pet: Pet) => pet),
   };
@@ -341,5 +342,31 @@ describe('API y autorización', () => {
     expect(onboarded.body.user.id).toBe(user.id);
     expect(onboarded.body.feeder.id).toBe(feederId);
     expect(onboarded.body.pet.name).toBe('Toby');
+  });
+
+  it('expone tags RFID escaneados recientemente vía GET /feeders/:id/rfid-scanned', async () => {
+    await deviceService.synchronize(feederId, {
+      id: 'scan-e2e-1',
+      kind: 'rfidScanned',
+      tagUid: '04a3b2c1d2',
+      at: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
+      'scan-e2e-1',
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .get(`/feeders/${feederId}/rfid-scanned`)
+      .set('Authorization', 'Bearer test')
+      .expect(200);
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tagUid: '04A3B2C1D2',
+          alreadyRegistered: false,
+          assignedPetId: null,
+        }),
+      ]),
+    );
   });
 });

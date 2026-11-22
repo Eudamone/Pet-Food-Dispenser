@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsObject,
@@ -64,6 +65,10 @@ export class OnboardingPetDto {
   @IsNotEmpty()
   @Matches(/\S/)
   tagUid?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  autoLinkScannedTag?: boolean;
 }
 
 export class OnboardingDto {

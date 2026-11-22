@@ -73,6 +73,10 @@ export class CreatePetDto {
   @IsOptional()
   @IsBoolean()
   autoAuthorizeFeeder?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  autoLinkScannedTag?: boolean;
 }
 
 export class UpdatePetDto {

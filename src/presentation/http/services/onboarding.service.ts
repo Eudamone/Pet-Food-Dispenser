@@ -59,6 +59,7 @@ export class OnboardingService {
         dailyLimitGrams: dto.pet.dailyLimitGrams,
         birth: dto.pet.birth,
         tagUid: dto.pet.tagUid,
+        autoLinkScannedTag: dto.pet.autoLinkScannedTag,
         feederId: feeder?.id,
         autoAuthorizeFeeder: Boolean(feeder),
       });

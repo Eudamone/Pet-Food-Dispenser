@@ -15,6 +15,7 @@ import type {
 import type {
   DiscoveredFeeder,
   DiscoveredFeederSource,
+  ScannedRfidTag,
 } from '../services/device.service.js';
 
 export class CreateFeederDto {
@@ -62,6 +63,22 @@ export class DiscoveredFeederResponseDto {
       lastSeenAt: item.lastSeenAt,
       gateState: item.gateState,
       lastFault: item.lastFault,
+    };
+  }
+}
+
+export class ScannedRfidTagResponseDto {
+  tagUid: string;
+  scannedAt: Date;
+  alreadyRegistered: boolean;
+  assignedPetId: string | null;
+
+  static from(item: ScannedRfidTag): ScannedRfidTagResponseDto {
+    return {
+      tagUid: item.tagUid,
+      scannedAt: item.scannedAt,
+      alreadyRegistered: item.alreadyRegistered,
+      assignedPetId: item.assignedPetId,
     };
   }
 }

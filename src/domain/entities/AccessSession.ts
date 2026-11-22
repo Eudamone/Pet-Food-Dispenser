@@ -81,11 +81,11 @@ export class AccessSession {
     this._status = 'open';
   }
 
-  close(at: Date): void {
+  close(at: Date | null): void {
     if (this._status !== 'open') throw new Error('La visita no está abierta.');
-    if (!Number.isFinite(at.getTime()) || at < this._openedAt!)
+    if (at !== null && (!Number.isFinite(at.getTime()) || at < this._openedAt!))
       throw new Error('El cierre no puede preceder a la apertura.');
-    this._closedAt = new Date(at);
+    this._closedAt = at ? new Date(at) : null;
     this._status = 'closed';
   }
 

@@ -123,6 +123,14 @@ describe('Visitas', () => {
     expect(session.closedAt).toEqual(end);
   });
 
+  it('conserva un cierre sin fecha reportada por el equipo', () => {
+    const session = visit();
+    session.open(start);
+    session.close(null);
+    expect(session.status).toBe('closed');
+    expect(session.closedAt).toBeNull();
+  });
+
   it('registra interrupciones incluso antes de abrir', () => {
     const session = visit();
     expect(() => session.markInterrupted(' ')).toThrow();
@@ -267,7 +275,7 @@ describe('Eventos de equipo sin sensor de peso', () => {
     },
   );
 
-  it('exige fechas de apertura y cierre para resultados finalizados', () => {
+  it('exige apertura y finalización de dispensación para resultados completados', () => {
     expect(() =>
       readDeviceResult('device-1', {
         id: 'visit-1',
