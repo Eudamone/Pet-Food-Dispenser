@@ -1,9 +1,6 @@
 #include "FeederController.h"
 
-#include <Preferences.h>
 #include <Wire.h>
-#include <algorithm>
-#include <cmath>
 
 #if __has_include("Secrets.h")
 #include "Secrets.h"
@@ -29,7 +26,7 @@ void startTelemetry() {
   configTime(0, 0, "pool.ntp.org");
 }
 
-void sendObservation(uint32_t now, std::optional<float> grams) {
+void sendObservation(uint32_t now) {
   if (WiFi.status() != WL_CONNECTED) return;
   const time_t utc = time(nullptr);
   if (utc < 1704067200) return;
@@ -44,116 +41,17 @@ void sendObservation(uint32_t now, std::optional<float> grams) {
   if (!gmtime_r(&utc, &parts)) return;
   char at[25];
   if (!strftime(at, sizeof(at), "%Y-%m-%dT%H:%M:%SZ", &parts)) return;
-  char weight[20] = "null";
-  if (grams) snprintf(weight, sizeof(weight), "%.1f", *grams);
   char topic[80];
-  snprintf(topic, sizeof(topic), "feeders/%s/events", FEEDER_DEVICE_ID);
+  snprintf(topic, sizeof(topic), "feeders/%s/evt/result", FEEDER_DEVICE_ID);
   char payload[216];
   const int count = snprintf(payload, sizeof(payload),
-    "{\"id\":\"obs-%lu-%lu\",\"kind\":\"observation\",\"at\":\"%s\",\"weight\":%s,\"gate\":\"unknown\",\"fault\":\"Modo de observacion\"}",
-    static_cast<unsigned long>(utc), static_cast<unsigned long>(now), at, weight);
+    "{\"id\":\"obs-%lu-%lu\",\"kind\":\"observation\",\"at\":\"%s\",\"gate\":\"unknown\",\"fault\":\"Modo de observacion\"}",
+    static_cast<unsigned long>(utc), static_cast<unsigned long>(now), at);
   if (count > 0 && static_cast<size_t>(count) < sizeof(payload) && mqtt.publish(topic, payload, false))
     observationSentAt = now;
 }
 }
 #endif
-
-std::optional<float> DeviceMemory::loadCalibration() const {
-  Preferences storage;
-  if (!storage.begin("petpeso", true)) return std::nullopt;
-  const float factor = storage.getFloat("factor", 0);
-  storage.end();
-  if (!std::isfinite(factor) || std::abs(factor) < 0.000001f) return std::nullopt;
-  return factor;
-}
-
-std::optional<long> DeviceMemory::loadTare() const {
-  Preferences storage;
-  if (!storage.begin("petfeeder", true)) return std::nullopt;
-  const bool exists = storage.isKey("tare");
-  const long offset = storage.getLong("tare");
-  storage.end();
-  if (!exists) return std::nullopt;
-  return offset;
-}
-
-bool DeviceMemory::saveTare(long offset) const {
-  Preferences storage;
-  if (!storage.begin("petfeeder", false)) return false;
-  const bool saved = storage.putLong("tare", offset) == sizeof(int32_t);
-  storage.end();
-  return saved;
-}
-
-void WeightSensor::begin() {
-  scale_.begin(34, 33, 128);
-  factor_ = memory_.loadCalibration();
-  zero_ = memory_.loadTare();
-}
-
-void WeightSensor::tareEmptyPlate(uint32_t now) {
-  if (taring_) return;
-  taring_ = true;
-  tareStartedAt_ = now;
-  tareSum_ = 0;
-  tareCount_ = 0;
-  count_ = 0;
-  cursor_ = 0;
-  Serial.println("Tarando el plato.");
-}
-
-void WeightSensor::tick(uint32_t now) {
-  if (taring_ && now - tareStartedAt_ > 5000) {
-    taring_ = false;
-    Serial.println("No se obtuvo una tara válida.");
-  }
-  if (!scale_.is_ready()) return;
-  const long sample = scale_.read();
-  if (sample <= -8388000L || sample >= 8388000L) {
-    count_ = 0;
-    cursor_ = 0;
-    if (taring_) {
-      taring_ = false;
-      Serial.println("No se obtuvo una tara válida.");
-    }
-    return;
-  }
-  if (taring_) {
-    tareSum_ += sample;
-    if (++tareCount_ == 20) {
-      const long offset = std::lround(static_cast<double>(tareSum_) / tareCount_);
-      if (memory_.saveTare(offset)) {
-        zero_ = offset;
-        Serial.println("Tara guardada.");
-      } else {
-        Serial.println("No se pudo guardar la tara.");
-      }
-      taring_ = false;
-    }
-    return;
-  }
-  if (count_ && now - sampledAt_ > 1500) {
-    count_ = 0;
-    cursor_ = 0;
-  }
-  samples_[cursor_] = sample;
-  cursor_ = (cursor_ + 1) % 5;
-  if (count_ < 5) ++count_;
-  sampledAt_ = now;
-}
-
-std::optional<float> WeightSensor::readStable(uint32_t now) const {
-  if (!factor_ || !zero_ || taring_ || count_ != 5 || now - sampledAt_ > 1500)
-    return std::nullopt;
-  const auto range = std::minmax_element(samples_, samples_ + 5);
-  if (std::abs(static_cast<double>(*range.second - *range.first) / *factor_) > 2)
-    return std::nullopt;
-  long sum = 0;
-  for (const auto sample : samples_) sum += sample;
-  const float grams = (sum / 5.0f - *zero_) / *factor_;
-  if (!std::isfinite(grams) || grams < -2) return std::nullopt;
-  return std::max(0.0f, grams);
-}
 
 void RfidReader::begin() {
   Serial2.setRxBufferSize(512);
@@ -267,21 +165,17 @@ void FeederController::initialize() {
   Serial.begin(115200);
   Wire.begin(21, 22, 100000);
   Wire.setTimeOut(50);
-  weight_.begin();
   rfid_.begin();
   presence_.begin();
   clock_.begin();
 #if __has_include("Secrets.h")
   startTelemetry();
 #endif
-  Serial.println("Banco ESP32. PWM deshabilitado. t: tarar con el plato vacío.");
+  Serial.println("Banco ESP32. PWM deshabilitado.");
 }
 
 void FeederController::tick() {
   const uint32_t now = clock_.monotonicMs();
-  for (uint8_t n = 0; n < 8 && Serial.available(); ++n)
-    if (Serial.read() == 't') weight_.tareEmptyPlate(now);
-  weight_.tick(now);
   rfid_.tick(now);
   presence_.tick(now);
   clock_.tick(now);
@@ -290,20 +184,16 @@ void FeederController::tick() {
     report(now);
   }
 #if __has_include("Secrets.h")
-  sendObservation(now, weight_.readStable(now));
+  sendObservation(now);
 #endif
 }
 
 void FeederController::report(uint32_t now) {
-  const auto weight = weight_.readStable(now);
   const auto distance = presence_.distance(now);
   const auto at = clock_.nowLocal(now);
   const auto rawRfid = rfid_.readRecent(now, 1500);
 
-  Serial.print("Peso: ");
-  if (weight) Serial.printf("%.1f g", *weight);
-  else Serial.print("sin lectura estable");
-  Serial.printf(" | DO26: %d | Distancia: ", gate_.closedSignal());
+  Serial.printf("DO26: %d | Distancia: ", gate_.closedSignal());
   if (distance) Serial.printf("%u mm", *distance);
   else Serial.print("sin lectura");
   Serial.print(" | RTC: ");
