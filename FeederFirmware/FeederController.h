@@ -81,13 +81,13 @@ class Gate {
 class Dispenser {
  public:
   void initialize();
-  bool start(uint16_t cycles, uint32_t openMs, uint32_t now);
+  bool start(uint16_t cycles, uint32_t now);
   void tick(uint32_t now);
   bool isRunning() const;
   bool finished() const;
   bool failed() const;
   bool manualOpen() const;
-  bool setManualPosition(bool open, uint32_t duration, uint32_t now);
+  bool setManualPosition(bool open, uint32_t now);
   void reset();
   void stop();
   bool setPulse(uint16_t pulse);
@@ -96,7 +96,6 @@ class Dispenser {
   enum class State { Idle, BootClosing, Priming, Opening, Holding, Closing, Pausing, Finished, Failed, ManualOpen };
   State state_ = State::Idle;
   uint32_t changedAt_ = 0;
-  uint32_t openMs_ = 0;
   uint16_t cycles_ = 0;
   uint16_t completed_ = 0;
   bool ready_ = false;
@@ -135,7 +134,6 @@ class FeederController {
   void loadNetwork();
   void configureWifi(const String& json);
   void report(uint32_t now);
-  uint32_t foodOpenMs() const;
   String date() const;
   String timestamp() const;
   String eventId() const;

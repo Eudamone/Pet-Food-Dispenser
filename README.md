@@ -36,9 +36,9 @@ El FC-51 se usa para detectar a la mascota. La posición de la compuerta se esti
 
 ## Uso de la app
 
-- **Inicio.** Vincula un alimentador, consulta su conexión y estado, envía una dosis manual en gramos estimados y abre o cierra cada compuerta. El acceso queda abierto tras una orden manual hasta que se cierre. La tolva se cierra al vencer el tiempo configurado o al pulsar Cerrar.
+- **Inicio.** Vincula un alimentador, consulta su conexión y estado, envía una dosis manual en gramos estimados y abre o cierra cada compuerta. El acceso queda abierto tras una orden manual hasta que se cierre. La tolva se cierra a los 10 segundos o al pulsar Cerrar.
 - **Mascotas.** Crea, edita y elimina mascotas. Registra etiquetas RFID desde el lector o por UID, asígnalas y activa o retira permisos de acceso.
-- **Horarios.** Crea, edita, pausa o elimina horarios por hora y día. Configura el máximo diario estimado y la apertura de la tolva por ciclo, de 1 a 60 segundos. El valor inicial es 10 segundos. Ajusta la estimación de gramos por ciclo si cambias la duración o el alimento.
+- **Horarios.** Crea, edita, pausa o elimina horarios por hora y día y configura el máximo diario estimado. La tolva permanece abierta 10 segundos por ciclo. Calibra los gramos por ciclo con el alimento que vas a usar.
 - **Historial.** Consulta visitas RFID y resultados de dispensación manual o programada. Una solicitud pendiente puede volver a enviarse con el mismo identificador.
 - **Ajustes.** Registra una cuenta local, inicia o cierra sesión, edita el perfil y cambia la dirección del servidor o el nombre del alimentador.
 

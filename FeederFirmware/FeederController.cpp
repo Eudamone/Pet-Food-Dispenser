@@ -249,13 +249,11 @@ void Dispenser::initialize() {
 
 bool Dispenser::setPulse(uint16_t value) { return ready_ && pulse(DeviceConfig::FOOD_PIN, value); }
 
-bool Dispenser::start(uint16_t cycles, uint32_t openMs, uint32_t now) {
-  if (isRunning() || manualOpen() || !cycles || cycles > MAX_CYCLES_PER_ORDER ||
-      !openMs || openMs > MAX_FOOD_OPEN_SECONDS * 1000) return false;
+bool Dispenser::start(uint16_t cycles, uint32_t now) {
+  if (isRunning() || manualOpen() || !cycles || cycles > MAX_CYCLES_PER_ORDER) return false;
   if (!setPulse(DeviceConfig::FOOD_CLOSED_US)) return false;
   cycles_ = cycles;
   completed_ = 0;
-  openMs_ = openMs;
   changedAt_ = now;
   state_ = State::Priming;
   return true;
@@ -265,7 +263,7 @@ void Dispenser::tick(uint32_t now) {
   const uint32_t elapsed = now - changedAt_;
   switch (state_) {
     case State::ManualOpen:
-      if (elapsed < openMs_) return;
+      if (elapsed < FOOD_TRAVEL_MS + FOOD_OPEN_MS) return;
       state_ = setPulse(FOOD_CLOSED_US) ? State::BootClosing : State::Failed;
       break;
     case State::BootClosing:
@@ -283,7 +281,7 @@ void Dispenser::tick(uint32_t now) {
       state_ = State::Holding;
       break;
     case State::Holding:
-      if (elapsed < openMs_) return;
+      if (elapsed < FOOD_OPEN_MS) return;
       if (!setPulse(DeviceConfig::FOOD_CLOSED_US)) { state_ = State::Failed; return; }
       state_ = State::Closing;
       break;
@@ -304,10 +302,10 @@ bool Dispenser::isRunning() const {
 
 bool Dispenser::manualOpen() const { return state_ == State::ManualOpen; }
 
-bool Dispenser::setManualPosition(bool open, uint32_t duration, uint32_t now) {
+bool Dispenser::setManualPosition(bool open, uint32_t now) {
+  if (open && manualOpen()) return true;
   if ((open && isRunning()) || !setPulse(open ? FOOD_OPEN_US : FOOD_CLOSED_US)) return false;
   state_ = open ? State::ManualOpen : State::BootClosing;
-  openMs_ = duration + FOOD_TRAVEL_MS;
   changedAt_ = now;
   return true;
 }
@@ -558,10 +556,6 @@ bool FeederController::validateConfiguration(JsonObjectConst command) const {
       !command["slots"].is<JsonArrayConst>() || command["slots"].size() > DeviceConfig::MAX_SLOTS ||
       (!command["authorizedPets"].isNull() && !command["authorizedPets"].is<JsonArrayConst>()) ||
       command["authorizedPets"].size() > DeviceConfig::MAX_PETS) return false;
-  if (!command["foodOpenSeconds"].isNull() &&
-      (!command["foodOpenSeconds"].is<uint32_t>() ||
-       command["foodOpenSeconds"].as<uint32_t>() < 1 ||
-       command["foodOpenSeconds"].as<uint32_t>() > MAX_FOOD_OPEN_SECONDS)) return false;
   for (JsonObjectConst slot : command["slots"].as<JsonArrayConst>()) {
     const String time = slot["time"].as<String>();
     if (!identifier(slot["id"].as<String>()) || time.length() != 5 || time[2] != ':' ||
@@ -745,7 +739,7 @@ void FeederController::acceptServo(JsonObjectConst command) {
       (!stopDose && (dispenser_.isRunning() || !saved_["active"].isNull()))) {
     reason = "El alimentador esta ocupado.";
   } else if (servo == "food") {
-    if (!dispenser_.setManualPosition(open, foodOpenMs(), now))
+    if (!dispenser_.setManualPosition(open, now))
       reason = "No se pudo mover la tolva.";
     else if (stopDose)
       finishDispense("interrupted", "La tolva se cerro desde la app.");
@@ -764,15 +758,9 @@ void FeederController::acceptServo(JsonObjectConst command) {
   transientResult(result.as<JsonObjectConst>(), "servo");
 }
 
-uint32_t FeederController::foodOpenMs() const {
-  const uint32_t seconds = saved_["plan"]["foodOpenSeconds"] | FOOD_OPEN_SECONDS;
-  return (seconds >= 1 && seconds <= MAX_FOOD_OPEN_SECONDS ? seconds : FOOD_OPEN_SECONDS) * 1000;
-}
-
 bool FeederController::beginDispense(const String& id, float grams, const char* source,
     const String& slotId, const String& scheduleKey) {
   const float gramsPerCycle = saved_["gramsPerCycle"] | DeviceConfig::ESTIMATED_GRAMS_PER_CYCLE;
-  const uint32_t openMs = foodOpenMs();
   const float cyclesValue = gramsPerCycle > 0 ? ceilf(grams / gramsPerCycle) : 0;
   const uint16_t cycles = cyclesValue > DeviceConfig::MAX_CYCLES_PER_ORDER ? 0 : uint16_t(cyclesValue);
   const float estimated = cycles * gramsPerCycle;
@@ -819,7 +807,7 @@ bool FeederController::beginDispense(const String& id, float grams, const char* 
   if (!slotId.isEmpty()) active["slotId"] = slotId;
   saved_["budgetGrams"] = used + estimated;
   if (!save()) return false;
-  if (!dispenser_.start(cycles, openMs, millis())) {
+  if (!dispenser_.start(cycles, millis())) {
     finishDispense("failed", "No se pudo activar el dosificador.");
     return false;
   }
@@ -1012,7 +1000,7 @@ void FeederController::serialCommand() {
     }
     if (command == "ciclo") {
       override_ = true;
-      benchCycle_ = dispenser_.start(1, foodOpenMs(), millis());
+      benchCycle_ = dispenser_.start(1, millis());
       Serial.println(benchCycle_ ? "Un ciclo de prueba. La cantidad no esta medida." : "No se pudo iniciar el ciclo.");
       continue;
     }
@@ -1044,7 +1032,7 @@ void FeederController::report(uint32_t now) {
     override_ ? "manual" : "automatico", unsigned(saved_["events"].size()));
   Serial.printf("Presencia:%s RFID:%s Calibracion:%.2f g/ciclo estimados, %lu ms\n",
     presence_.present() ? "si" : "no", rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS).c_str(),
-    saved_["gramsPerCycle"].as<float>(), static_cast<unsigned long>(foodOpenMs()));
+    saved_["gramsPerCycle"].as<float>(), static_cast<unsigned long>(FOOD_OPEN_MS));
   if (!fault_.isEmpty()) Serial.println(fault_);
 }
 

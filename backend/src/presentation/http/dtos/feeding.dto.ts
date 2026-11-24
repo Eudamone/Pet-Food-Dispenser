@@ -16,7 +16,6 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { MAX_FOOD_OPEN_SECONDS } from '../../../domain/entities/FeedingPlan.js';
 import { SERVO_POSITIONS, SERVOS, type ServoPosition, type ServoName } from '../../../domain/ports/device-messenger.port.js';
 
 class FeedingSlotDto {
@@ -53,12 +52,6 @@ export class SaveFeedingPlanDto {
   @IsNumber()
   @IsPositive()
   maxDailyDispensedGrams: number;
-
-  @ValidateIf((_, value) => value !== undefined)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_FOOD_OPEN_SECONDS)
-  foodOpenSeconds?: number;
 
   @IsBoolean()
   enabled: boolean;

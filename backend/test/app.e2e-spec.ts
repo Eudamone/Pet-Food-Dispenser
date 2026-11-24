@@ -321,19 +321,15 @@ describe('API y autorización', () => {
     }
   });
 
-  it('guarda la duración de la tolva y valida su rango', async () => {
+  it('mantiene la apertura en 10 segundos con clientes anteriores', async () => {
     const path = `/feeders/${feederId}/plan`;
     const payload = { expectedRevision: 0, maxDailyDispensedGrams: 100, enabled: false, slots: [] };
     const api = request(app.getHttpServer());
-    for (const seconds of [0, 61, 2.5]) {
-      await api.put(path).set('Authorization', 'Bearer test')
-        .send({ ...payload, foodOpenSeconds: seconds }).expect(400);
-    }
     await api.put(path).set('Authorization', 'Bearer test').send(payload).expect(200)
       .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(10));
     await api.put(path).set('Authorization', 'Bearer test')
       .send({ ...payload, foodOpenSeconds: 17 }).expect(200)
-      .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(17));
+      .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(10));
   });
 
   it('controla cada servo y espera el resultado del dispositivo', async () => {

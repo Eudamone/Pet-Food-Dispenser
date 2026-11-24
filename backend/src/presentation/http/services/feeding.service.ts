@@ -131,7 +131,6 @@ export class FeedingService {
         existing?.id ?? randomUUID(),
         device.id,
         input.maxDailyDispensedGrams,
-        input.foodOpenSeconds ?? existing?.foodOpenSeconds,
       );
       for (const slot of input.slots) {
         plan.addSlot(

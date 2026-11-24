@@ -50,7 +50,7 @@ function ServoControls({ feeder, online, request, refresh }) {
     <Card>
       <Text style={styles.heading}>Control de compuertas</Text>
       <Copy>Comprueba que el acceso esté despejado antes de cerrarlo.</Copy>
-      <Copy>La tolva se cierra después del tiempo configurado en Horarios.</Copy>
+      <Copy>La tolva se cierra sola a los 10 segundos.</Copy>
       {[
         ['access', 'Acceso'],
         ['food', 'Tolva'],

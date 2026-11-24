@@ -62,6 +62,7 @@ describe('Mapeo del dominio', () => {
       deviceId,
       enabled: true,
       maxDailyDispensedGrams: 160,
+      foodOpenSeconds: 17,
       slots: [
         {
           id: 'slot-1',
@@ -74,6 +75,8 @@ describe('Mapeo del dominio', () => {
     });
     const plan = FeedingPlanMapper.toDomain(row);
     expect(plan.slots[0].occursOn(1)).toBe(true);
+    expect(plan.foodOpenSeconds).toBe(10);
+    expect(FeedingPlanMapper.toModel(plan).foodOpenSeconds).toBe(10);
     expect(() => plan.validate(100)).not.toThrow();
     const metadata = database.getMetadata(FeedingPlanModel);
     expect(

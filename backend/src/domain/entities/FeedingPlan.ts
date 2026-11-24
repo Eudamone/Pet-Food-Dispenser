@@ -1,7 +1,6 @@
 import { FeedingSlot } from './FeedingSlot.js';
 
-export const DEFAULT_FOOD_OPEN_SECONDS = 10;
-export const MAX_FOOD_OPEN_SECONDS = 60;
+export const FOOD_OPEN_SECONDS = 10;
 
 export class FeedingPlan {
   readonly id: string;
@@ -11,22 +10,14 @@ export class FeedingPlan {
   private _slots: FeedingSlot[] = [];
   private _enabled = false;
   private _maxDailyDispensedGrams: number;
-  readonly foodOpenSeconds: number;
+  readonly foodOpenSeconds = FOOD_OPEN_SECONDS;
 
-  constructor(
-    id: string,
-    deviceId: string,
-    maxDailyDispensedGrams: number,
-    foodOpenSeconds = DEFAULT_FOOD_OPEN_SECONDS,
-  ) {
+  constructor(id: string, deviceId: string, maxDailyDispensedGrams: number) {
     if (!id.trim() || !deviceId.trim())
       throw new Error('El plan necesita identificador y equipo.');
     this.id = id;
     this.deviceId = deviceId;
     this.setMaxDailyDispensed(maxDailyDispensedGrams);
-    if (!Number.isInteger(foodOpenSeconds) || foodOpenSeconds < 1 || foodOpenSeconds > MAX_FOOD_OPEN_SECONDS)
-      throw new Error('La apertura debe durar entre 1 y 60 segundos.');
-    this.foodOpenSeconds = foodOpenSeconds;
   }
 
   get slots(): readonly FeedingSlot[] {
