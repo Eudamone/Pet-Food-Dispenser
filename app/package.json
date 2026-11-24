@@ -1,0 +1,36 @@
+{
+  "name": "proyecto-dispensador",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "babel-preset-expo": "^57.0.10",
+    "expo": "~57.0.20",
+    "expo-build-properties": "~57.0.17",
+    "expo-constants": "~57.0.17",
+    "expo-font": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-hook-form": "^7.53.0",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "lint": "eslint ."
+  },
+  "private": true,
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "prettier": "^3.9.6"
+  }
+}
