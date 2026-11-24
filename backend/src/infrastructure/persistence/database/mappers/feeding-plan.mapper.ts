@@ -7,6 +7,7 @@ export class FeedingPlanMapper {
       row.id,
       row.deviceId,
       row.maxDailyDispensedGrams,
+      row.foodOpenSeconds,
     );
     for (const slot of row.slots)
       plan.addSlot(slot, Number.MAX_SAFE_INTEGER);
@@ -21,6 +22,7 @@ export class FeedingPlanMapper {
     row.slots = [...plan.slots];
     row.enabled = plan.enabled;
     row.maxDailyDispensedGrams = plan.maxDailyDispensedGrams;
+    row.foodOpenSeconds = plan.foodOpenSeconds;
     return row;
   }
 }

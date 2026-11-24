@@ -5,6 +5,7 @@ import type { GateState } from '../../../domain/entities/FeederDevice.js';
 
 type DeviceResult =
   | { id: string; kind: 'configurationApplied'; revision: number }
+  | { id: string; kind: 'servoResult'; applied: boolean; reason: string | null }
   | {
       id: string;
       kind: 'observation';
@@ -60,6 +61,16 @@ export function readDeviceResult(
     data.finishedAt == null ? null : instant(data.finishedAt);
 
   switch (data.kind) {
+    case 'servoResult': {
+      if (typeof data.applied !== 'boolean')
+        throw new Error('Resultado del servo inválido.');
+      return {
+        id,
+        kind: data.kind,
+        applied: data.applied,
+        reason: data.reason == null ? null : text(data.reason, 'motivo'),
+      };
+    }
     case 'configurationApplied': {
       const revision = data.revision;
       if (

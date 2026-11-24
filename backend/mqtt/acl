@@ -1,0 +1,7 @@
+user backend
+topic read feeders/+/evt/result
+topic write feeders/+/cmd/#
+topic write pet-feeder/health
+
+pattern read feeders/%u/cmd/#
+pattern write feeders/%u/evt/result

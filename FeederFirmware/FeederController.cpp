@@ -1,9 +1,10 @@
 #include "FeederController.h"
 
+#include <Adafruit_PN532.h>
+#include <ESPmDNS.h>
 #include <Wire.h>
 #include <cmath>
-#include <ctime>
-#include <esp_sntp.h>
+#include <sys/time.h>
 #include <memory>
 #include <new>
 
@@ -12,7 +13,7 @@
 #else
 inline constexpr char FEEDER_WIFI_SSID[] = "";
 inline constexpr char FEEDER_WIFI_PASSWORD[] = "";
-inline constexpr char FEEDER_MQTT_HOST[] = "";
+inline constexpr char FEEDER_MQTT_HOST[] = "petfeeder.local";
 inline constexpr uint16_t FEEDER_MQTT_PORT = 1883;
 inline constexpr bool FEEDER_MQTT_TLS = false;
 inline constexpr char FEEDER_MQTT_USERNAME[] = "";
@@ -65,58 +66,52 @@ String iso(uint32_t value) {
 }
 
 void RfidReader::begin() {
-  Serial2.setRxBufferSize(512);
-  Serial2.begin(9600, SERIAL_8N1, DeviceConfig::RFID_RX_PIN, -1);
+  scans_ = xQueueCreate(1, sizeof(char[30]));
+  if (!scans_) return;
+  if (xTaskCreate(readTags, "pn532", 4096, scans_, 1, nullptr) != pdPASS) {
+    vQueueDelete(scans_);
+    scans_ = nullptr;
+    Serial.println("PN532: no se pudo crear la tarea de lectura.");
+  }
 }
 
-void RfidReader::finish(uint32_t now) {
-  if (used_ && !overflow_) {
-    bool hasData = false;
-    for (size_t i = 0; i < used_; ++i)
-      if (bytes_[i] != 2 && bytes_[i] != 3 && bytes_[i] != '\r' && bytes_[i] != '\n') hasData = true;
-    if (!hasData) { used_ = 0; overflow_ = false; return; }
-    String ascii;
-    bool printable = true;
-    for (size_t i = 0; i < used_; ++i) {
-      const uint8_t b = bytes_[i];
-      if (b == 2 || b == 3 || b == '\r' || b == '\n') continue;
-      if (!isalnum(b)) { printable = false; break; }
-      ascii += char(toupper(b));
+void RfidReader::readTags(void* queue) {
+  Adafruit_PN532 reader(-1, -1, &Wire1);
+  const uint8_t reply[] = {0x01, 0x00, 0x00, 0xFF, 0x02, 0xFE, 0xD5, 0x33, 0xF8, 0x00};
+  uint8_t retries[] = {PN532_COMMAND_RFCONFIGURATION, 0x05, 0xFF, 0x01, 0x02};
+  while (true) {
+    if (Wire1.begin(RFID_SDA_PIN, RFID_SCL_PIN, 100000) && reader.begin() &&
+        reader.getFirmwareVersion() && reader.SAMConfig() &&
+        reader.sendCommandCheckAck(retries, sizeof(retries)) &&
+        Wire1.requestFrom(PN532_I2C_ADDRESS, sizeof(reply), true) == sizeof(reply)) {
+      bool configured = true;
+      for (uint8_t expected : reply) if (Wire1.read() != expected) configured = false;
+      if (configured) break;
     }
-    frame_ = "";
-    bool hex = printable && (ascii.length() == 10 || ascii.length() == 12);
-    for (char c : ascii) hex = hex && isxdigit(static_cast<unsigned char>(c));
-    if (hex && ascii.length() == 12) {
-      uint8_t checksum = 0;
-      for (size_t i = 0; i < 10; i += 2)
-        checksum ^= strtoul(ascii.substring(i, i + 2).c_str(), nullptr, 16);
-      if (checksum == strtoul(ascii.substring(10).c_str(), nullptr, 16)) frame_ = ascii.substring(0, 10);
-    } else if (printable && identifier(ascii)) {
-      frame_ = ascii;
-    } else if (!hex) {
-      for (size_t i = 0; i < used_; ++i) {
-        char pair[3];
-        snprintf(pair, sizeof(pair), "%02X", bytes_[i]);
-        frame_ += pair;
-      }
-    }
-    if (!frame_.isEmpty()) { frameAt_ = now; ++sequence_; }
+    Serial.println("PN532 sin respuesta; revisa modo I2C y GPIO16/17.");
+    vTaskDelay(pdMS_TO_TICKS(2000));
   }
-  used_ = 0;
-  overflow_ = false;
+  Serial.println("PN532 listo por I2C.");
+  while (true) {
+    uint8_t uid[10];
+    uint8_t length = 0;
+    if (reader.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &length, 350) &&
+        length > 0 && length <= sizeof(uid)) {
+      char tag[30]{};
+      for (uint8_t i = 0; i < length; ++i)
+        snprintf(tag + 3 * i, sizeof(tag) - 3 * i, i ? ":%02X" : "%02X", unsigned(uid[i]));
+      xQueueOverwrite(static_cast<QueueHandle_t>(queue), tag);
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
 }
 
 void RfidReader::tick(uint32_t now) {
-  if ((used_ || overflow_) && now - receivedAt_ >= 30) finish(now);
-  for (uint8_t n = 0; n < 32 && Serial2.available(); ++n) {
-    const int value = Serial2.read();
-    if (value < 0) break;
-    if (value == 2 && used_) finish(now);
-    receivedAt_ = now;
-    if (used_ < sizeof(bytes_)) bytes_[used_++] = value;
-    else overflow_ = true;
-    if (value == 3 || value == '\n') finish(now);
-  }
+  char tag[30];
+  if (!scans_ || xQueueReceive(scans_, tag, 0) != pdTRUE) return;
+  frame_ = tag;
+  frameAt_ = now;
+  ++sequence_;
 }
 
 String RfidReader::readRecent(uint32_t now, uint32_t maxAgeMs) const {
@@ -126,79 +121,62 @@ String RfidReader::readRecent(uint32_t now, uint32_t maxAgeMs) const {
 uint32_t RfidReader::sequence() const { return sequence_; }
 
 void PresenceSensor::begin() {
-  sensor_.setTimeout(50);
-  ready_ = sensor_.init() && sensor_.setMeasurementTimingBudget(20000);
-  if (ready_) sensor_.startContinuous(50);
+  pinMode(PRESENCE_PIN, INPUT_PULLDOWN);
+  present_ = lastReading_ = digitalRead(PRESENCE_PIN) == LOW;
 }
 
 void PresenceSensor::tick(uint32_t now) {
-  if (!ready_ || now - checkedAt_ < 50) return;
-  checkedAt_ = now;
-  const uint8_t status = sensor_.readReg(VL53L0X::RESULT_INTERRUPT_STATUS);
-  if (sensor_.last_status != 0) { distance_.reset(); return; }
-  if (!(status & 0x07)) return;
-  const uint16_t result = sensor_.readRangeContinuousMillimeters();
-  sampledAt_ = now;
-  if (sensor_.timeoutOccurred() || sensor_.last_status != 0 || result >= 8190) distance_.reset();
-  else distance_ = result;
+  const bool reading = digitalRead(PRESENCE_PIN) == LOW;
+  if (reading != lastReading_) {
+    lastReading_ = reading;
+    changedAt_ = now;
+  }
+  if (now - changedAt_ >= PRESENCE_DEBOUNCE_MS) present_ = reading;
 }
 
-std::optional<uint16_t> PresenceSensor::distance(uint32_t now) const {
-  if (now - sampledAt_ > 250) return std::nullopt;
-  return distance_;
-}
+bool PresenceSensor::present() const { return present_; }
 
 void Clock::begin() {
   ready_ = rtc_.begin(&Wire);
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  tick(millis());
 }
 
 void Clock::tick(uint32_t now) {
-  if (epoch_ && now - epochAt_ >= 1000) {
+  if (localEpoch_ && now - epochAt_ >= 1000) {
     const uint32_t seconds = (now - epochAt_) / 1000;
-    epoch_ += seconds;
+    localEpoch_ += seconds;
     epochAt_ += seconds * 1000;
   }
-  if (now - checkedAt_ < 1000) return;
+  if (!ready_ || (checkedAt_ && now - checkedAt_ < 1000)) return;
   checkedAt_ = now;
-  const time_t network = time(nullptr);
-  if (network >= 1704067200 && network < 4102444800LL) {
-    epoch_ = uint32_t(network);
-    epochAt_ = now;
-    if (ready_ && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-      rtc_.adjust(DateTime(epoch_));
-    }
-    return;
-  }
-  if (!epoch_ && ready_ && !rtc_.lostPower()) {
-    const DateTime at = rtc_.now();
-    if (at.isValid() && at.year() >= 2024) {
-      epoch_ = at.unixtime();
-      epochAt_ = now;
-      timeval value{static_cast<time_t>(epoch_), 0};
-      settimeofday(&value, nullptr);
-    }
+  if (rtc_.lostPower()) return;
+  const DateTime local = rtc_.now();
+  if (!local.isValid() || local.year() < 2024) return;
+  const bool wasUnset = !localEpoch_;
+  localEpoch_ = local.unixtime();
+  epochAt_ = now;
+  if (wasUnset) {
+    timeval value{static_cast<time_t>(utc()), 0};
+    settimeofday(&value, nullptr);
   }
 }
 
-uint32_t Clock::utc() const { return epoch_; }
+uint32_t Clock::utc() const { return localEpoch_ ? localEpoch_ + BOGOTA_TO_UTC_SECONDS : 0; }
 
 bool Clock::setUtc(uint32_t utc) {
   if (utc < 1704067200UL || utc > 4102444800UL) return false;
   timeval value{static_cast<time_t>(utc), 0};
   if (settimeofday(&value, nullptr) != 0) return false;
-  epoch_ = utc;
+  localEpoch_ = utc - BOGOTA_TO_UTC_SECONDS;
   epochAt_ = millis();
-  if (ready_) rtc_.adjust(DateTime(utc));
+  if (ready_) rtc_.adjust(DateTime(localEpoch_));
   return true;
 }
 
 std::optional<DateTime> Clock::nowLocal(uint32_t) const {
-  if (!epoch_) return std::nullopt;
-  return DateTime(uint32_t(int64_t(epoch_) + DeviceConfig::UTC_OFFSET_SECONDS));
+  if (!localEpoch_) return std::nullopt;
+  return DateTime(localEpoch_);
 }
-
-uint32_t Clock::monotonicMs() const { return millis(); }
 
 void Gate::initialize() {
   ready_ = ledcAttach(DeviceConfig::ACCESS_PIN, 50, 16);
@@ -272,7 +250,8 @@ void Dispenser::initialize() {
 bool Dispenser::setPulse(uint16_t value) { return ready_ && pulse(DeviceConfig::FOOD_PIN, value); }
 
 bool Dispenser::start(uint16_t cycles, uint32_t openMs, uint32_t now) {
-  if (isRunning() || !cycles || cycles > DeviceConfig::MAX_CYCLES_PER_ORDER || !openMs || openMs > 10000) return false;
+  if (isRunning() || manualOpen() || !cycles || cycles > MAX_CYCLES_PER_ORDER ||
+      !openMs || openMs > MAX_FOOD_OPEN_SECONDS * 1000) return false;
   if (!setPulse(DeviceConfig::FOOD_CLOSED_US)) return false;
   cycles_ = cycles;
   completed_ = 0;
@@ -285,6 +264,10 @@ bool Dispenser::start(uint16_t cycles, uint32_t openMs, uint32_t now) {
 void Dispenser::tick(uint32_t now) {
   const uint32_t elapsed = now - changedAt_;
   switch (state_) {
+    case State::ManualOpen:
+      if (elapsed < openMs_) return;
+      state_ = setPulse(FOOD_CLOSED_US) ? State::BootClosing : State::Failed;
+      break;
     case State::BootClosing:
       if (elapsed < DeviceConfig::FOOD_TRAVEL_MS) return;
       state_ = State::Idle;
@@ -315,7 +298,18 @@ void Dispenser::tick(uint32_t now) {
 }
 
 bool Dispenser::isRunning() const {
-  return state_ != State::Idle && state_ != State::Finished && state_ != State::Failed;
+  return state_ != State::Idle && state_ != State::Finished &&
+    state_ != State::Failed && state_ != State::ManualOpen;
+}
+
+bool Dispenser::manualOpen() const { return state_ == State::ManualOpen; }
+
+bool Dispenser::setManualPosition(bool open, uint32_t duration, uint32_t now) {
+  if ((open && isRunning()) || !setPulse(open ? FOOD_OPEN_US : FOOD_CLOSED_US)) return false;
+  state_ = open ? State::ManualOpen : State::BootClosing;
+  openMs_ = duration + FOOD_TRAVEL_MS;
+  changedAt_ = now;
+  return true;
 }
 bool Dispenser::finished() const { return state_ == State::Finished; }
 bool Dispenser::failed() const { return state_ == State::Failed; }
@@ -360,7 +354,6 @@ void FeederController::initialize() {
       if (!saved_["requests"].is<JsonArray>()) saved_["requests"].to<JsonArray>();
       if (!saved_["scheduled"].is<JsonObject>()) saved_["scheduled"].to<JsonObject>();
       if (!saved_["gramsPerCycle"].is<float>()) saved_["gramsPerCycle"] = DeviceConfig::ESTIMATED_GRAMS_PER_CYCLE;
-      if (!saved_["openMs"].is<uint32_t>()) saved_["openMs"] = DeviceConfig::FOOD_OPEN_MS;
       if (save()) recover();
     }
   } else if (fault_.isEmpty()) fault_ = "No se pudo abrir la memoria del equipo.";
@@ -390,7 +383,7 @@ void FeederController::initialize() {
   }
   Serial.printf("Equipo: %s | Acceso GPIO%u | Alimento GPIO%u\n", DeviceConfig::DEVICE_ID,
     DeviceConfig::ACCESS_PIN, DeviceConfig::FOOD_PIN);
-  Serial.println("Ordenes: estado, p 2500, l 1600, off, on, ciclo, cal 20 800, hora 1795467600");
+  Serial.println("Ordenes: estado, p 2500, l 1600, off, on, ciclo, cal 20, hora <Unix UTC>");
   if (!networkReady_) Serial.println("Configura Secrets.h para conectar WiFi y MQTT.");
   if (!fault_.isEmpty()) Serial.println(fault_);
 }
@@ -450,8 +443,12 @@ void FeederController::receive(char* topic, uint8_t* payload, unsigned int lengt
 }
 
 void FeederController::connect(uint32_t now) {
-  if (!networkReady_ || dispenser_.isRunning() || gate_.moving()) return;
+  if (!networkReady_ || gate_.moving()) return;
   if (WiFi.status() != WL_CONNECTED) {
+    if (mdnsReady_) {
+      MDNS.end();
+      mdnsReady_ = false;
+    }
     if (now - wifiAt_ >= 15000 && !dispenser_.isRunning() && !gate_.moving()) {
       wifiAt_ = now;
       Serial.printf("WiFi pendiente: %d\n", int(WiFi.status()));
@@ -463,6 +460,15 @@ void FeederController::connect(uint32_t now) {
   if (dispenser_.isRunning() || gate_.moving() || now - connectionAt_ < 5000) return;
   if (FEEDER_MQTT_TLS && !clock_.utc()) return;
   connectionAt_ = now;
+  if (!FEEDER_MQTT_TLS && strcmp(FEEDER_MQTT_HOST, "petfeeder.local") == 0) {
+    if (!mdnsReady_) mdnsReady_ = MDNS.begin("petfeeder-esp32");
+    const auto address = mdnsReady_ ? MDNS.queryHost("petfeeder", 500) : IPAddress();
+    if (!address) {
+      Serial.println("MQTT: petfeeder.local aun no responde.");
+      return;
+    }
+    mqtt_.setServer(address, FEEDER_MQTT_PORT);
+  }
   const bool connected = FEEDER_MQTT_USERNAME[0]
     ? mqtt_.connect(DeviceConfig::DEVICE_ID, FEEDER_MQTT_USERNAME, FEEDER_MQTT_PASSWORD)
     : mqtt_.connect(DeviceConfig::DEVICE_ID);
@@ -470,6 +476,7 @@ void FeederController::connect(uint32_t now) {
   const String base = String("feeders/") + DeviceConfig::DEVICE_ID;
   if (!mqtt_.subscribe((base + "/cmd/configuration").c_str()) ||
       !mqtt_.subscribe((base + "/cmd/dispense").c_str()) ||
+      !mqtt_.subscribe((base + "/cmd/servo").c_str()) ||
       !mqtt_.subscribe((base + "/cmd/confirmations").c_str())) {
     mqtt_.disconnect();
     return;
@@ -490,6 +497,7 @@ void FeederController::processIncoming() {
   if (topic == base + "/cmd/confirmations") confirm(command["eventIds"].as<JsonArrayConst>());
   else if (topic == base + "/cmd/configuration") applyConfiguration(command.as<JsonObjectConst>());
   else if (topic == base + "/cmd/dispense") acceptManual(command.as<JsonObjectConst>());
+  else if (topic == base + "/cmd/servo") acceptServo(command.as<JsonObjectConst>());
 }
 
 bool FeederController::validateConfiguration(JsonObjectConst command) const {
@@ -501,6 +509,10 @@ bool FeederController::validateConfiguration(JsonObjectConst command) const {
       !command["slots"].is<JsonArrayConst>() || command["slots"].size() > DeviceConfig::MAX_SLOTS ||
       (!command["authorizedPets"].isNull() && !command["authorizedPets"].is<JsonArrayConst>()) ||
       command["authorizedPets"].size() > DeviceConfig::MAX_PETS) return false;
+  if (!command["foodOpenSeconds"].isNull() &&
+      (!command["foodOpenSeconds"].is<uint32_t>() ||
+       command["foodOpenSeconds"].as<uint32_t>() < 1 ||
+       command["foodOpenSeconds"].as<uint32_t>() > MAX_FOOD_OPEN_SECONDS)) return false;
   for (JsonObjectConst slot : command["slots"].as<JsonArrayConst>()) {
     const String time = slot["time"].as<String>();
     if (!identifier(slot["id"].as<String>()) || time.length() != 5 || time[2] != ':' ||
@@ -558,7 +570,7 @@ void FeederController::confirm(JsonArrayConst ids) {
     for (size_t i = events.size(); i > 0; --i) {
       if (events[i - 1]["id"].as<String>() == id) { events.remove(i - 1); changed = true; }
     }
-    for (const char* key : {"configuration", "observation", "rfid"})
+    for (const char* key : {"configuration", "observation", "rfid", "servo"})
       if (transient_[key]["id"].as<String>() == id) transient_.remove(key);
   }
   if (changed) save();
@@ -568,13 +580,13 @@ void FeederController::publishResults(uint32_t now) {
   if (!mqtt_.connected() || dispenser_.isRunning() || gate_.moving() || now - publishedAt_ < 500) return;
   publishedAt_ = now;
   JsonArrayConst events = saved_["events"].as<JsonArrayConst>();
-  const size_t count = events.size() + 3;
+  const size_t count = events.size() + 4;
   for (size_t tried = 0; tried < count; ++tried) {
     const size_t index = resultIndex_++ % count;
     JsonObjectConst event;
     if (index < events.size()) event = events[index].as<JsonObjectConst>();
     else {
-      const char* keys[] = {"configuration", "observation", "rfid"};
+      const char* keys[] = {"configuration", "observation", "rfid", "servo"};
       event = transient_[keys[index - events.size()]].as<JsonObjectConst>();
     }
     if (event.isNull()) continue;
@@ -600,6 +612,7 @@ void FeederController::observe(uint32_t now) {
   event["measurementMode"] = "estimated";
   event["estimatedGramsPerCycle"] = saved_["gramsPerCycle"];
   event["commandedGate"] = gate_.closed() ? "closed" : gate_.open() ? "open" : "unknown";
+  event["presence"] = presence_.present();
   transientResult(event.as<JsonObjectConst>(), "observation");
 }
 
@@ -662,10 +675,55 @@ void FeederController::acceptManual(JsonObjectConst command) {
   beginDispense(id, command["targetGrams"].as<float>(), "manual", "", "");
 }
 
+void FeederController::acceptServo(JsonObjectConst command) {
+  const String id = command["requestId"].as<String>();
+  const String servo = command["servo"].as<String>();
+  const String position = command["position"].as<String>();
+  if (!storageReady_ || command["kind"] != "servoPosition" ||
+      command["deviceId"] != DEVICE_ID || !uuid(id) ||
+      (servo != "access" && servo != "food") ||
+      (position != "open" && position != "closed")) return;
+  const uint32_t utc = clock_.utc();
+  const uint32_t requested = parseUtc(command["requestedAt"].as<String>());
+  if (!utc || !requested || requested > utc + 5 || (utc > requested && utc - requested > 10)) return;
+  if (!rememberRequest(id, utc) || !save()) return;
+
+  const bool open = position == "open";
+  const uint32_t now = millis();
+  const char* reason = nullptr;
+  const bool stopDose = servo == "food" && !open && !saved_["active"].isNull();
+  if (override_ || gate_.moving() || !saved_["access"].isNull() ||
+      (!stopDose && (dispenser_.isRunning() || !saved_["active"].isNull()))) {
+    reason = "El alimentador esta ocupado.";
+  } else if (servo == "food") {
+    if (!dispenser_.setManualPosition(open, foodOpenMs(), now))
+      reason = "No se pudo mover la tolva.";
+    else if (stopDose)
+      finishDispense("interrupted", "La tolva se cerro desde la app.");
+  } else if (!open && presence_.present()) {
+    reason = "El FC-51 indica presencia en el acceso.";
+  } else {
+    const bool moved = open ? gate_.requestOpen(now) : gate_.requestClose(now);
+    if (moved) accessHeldOpen_ = open;
+    else reason = "No se pudo mover la compuerta de acceso.";
+  }
+  JsonDocument result;
+  result["id"] = id;
+  result["kind"] = "servoResult";
+  result["applied"] = reason == nullptr;
+  if (reason) result["reason"] = reason;
+  transientResult(result.as<JsonObjectConst>(), "servo");
+}
+
+uint32_t FeederController::foodOpenMs() const {
+  const uint32_t seconds = saved_["plan"]["foodOpenSeconds"] | FOOD_OPEN_SECONDS;
+  return (seconds >= 1 && seconds <= MAX_FOOD_OPEN_SECONDS ? seconds : FOOD_OPEN_SECONDS) * 1000;
+}
+
 bool FeederController::beginDispense(const String& id, float grams, const char* source,
     const String& slotId, const String& scheduleKey) {
   const float gramsPerCycle = saved_["gramsPerCycle"] | DeviceConfig::ESTIMATED_GRAMS_PER_CYCLE;
-  const uint32_t openMs = saved_["openMs"] | DeviceConfig::FOOD_OPEN_MS;
+  const uint32_t openMs = foodOpenMs();
   const float cyclesValue = gramsPerCycle > 0 ? ceilf(grams / gramsPerCycle) : 0;
   const uint16_t cycles = cyclesValue > DeviceConfig::MAX_CYCLES_PER_ORDER ? 0 : uint16_t(cyclesValue);
   const float estimated = cycles * gramsPerCycle;
@@ -677,10 +735,11 @@ bool FeederController::beginDispense(const String& id, float grams, const char* 
   if (!clock_.utc()) reason = "El equipo no tiene hora valida.";
   else if (date() < saved_["budgetDay"].as<String>()) reason = "El reloj retrocedio. Corrige la hora antes de dosificar.";
   else if (override_) reason = "El equipo esta en control manual por puerto serie.";
-  else if (!saved_["active"].isNull() || dispenser_.isRunning() || !saved_["access"].isNull()) reason = "El equipo esta ocupado.";
+  else if (!saved_["active"].isNull() || dispenser_.isRunning() || dispenser_.manualOpen() ||
+           !saved_["access"].isNull()) reason = "El equipo esta ocupado.";
   else if (!gate_.closed()) reason = "La compuerta de acceso no esta en posicion de cierre.";
   else if (!saved_["plan"].is<JsonObject>()) reason = "Falta recibir la configuracion del servidor.";
-  else if (!cycles || !std::isfinite(estimated) || openMs < 50 || openMs > 10000) reason = "La calibracion no permite esta dosis.";
+  else if (!cycles || !std::isfinite(estimated)) reason = "La calibracion no permite esta dosis.";
   else if (grams > bowl || estimated > bowl) reason = "La dosis estimada supera la capacidad configurada.";
   else if (daily > 0 && used + estimated > daily + 0.001f) reason = "La dosis estimada supera el limite diario.";
   else if (saved_["events"].size() >= DeviceConfig::MAX_PENDING_RESULTS - 2) reason = "Hay resultados pendientes de confirmacion.";
@@ -813,8 +872,7 @@ void FeederController::closeAccess() {
 
 void FeederController::checkAccess(uint32_t now) {
   if (override_ || !storageReady_ || dispenser_.isRunning() || !saved_["active"].isNull()) return;
-  const auto distance = presence_.distance(now);
-  const bool clear = distance && *distance > DeviceConfig::PRESENCE_MM;
+  const bool clear = !presence_.present();
   if (clear) { if (!clearAt_) clearAt_ = now; }
   else clearAt_ = 0;
   if (gate_.closing() && !clear) {
@@ -822,6 +880,7 @@ void FeederController::checkAccess(uint32_t now) {
   }
   gate_.tick(now);
   if (gate_.blocked()) { fault_ = "No se pudo confirmar el cierre de la compuerta."; return; }
+  if (accessHeldOpen_) return;
   if (gate_.open() && !saved_["access"].isNull() && saved_["access"]["openedAt"].isNull()) {
     saved_["access"]["openedAt"] = timestamp();
     save();
@@ -864,6 +923,7 @@ void FeederController::serialCommand() {
       }
       dispenser_.stop();
       gate_.stop();
+      accessHeldOpen_ = false;
       benchCycle_ = false;
       Serial.println("PWM desactivado. No confirma una posicion fisica de cierre.");
       continue;
@@ -876,6 +936,7 @@ void FeederController::serialCommand() {
       override_ = false;
       dispenser_.initialize();
       gate_.stop();
+      accessHeldOpen_ = false;
       clearAt_ = 0;
       fault_ = "";
       Serial.println("Control automatico habilitado. Esperando zona de acceso despejada.");
@@ -898,20 +959,18 @@ void FeederController::serialCommand() {
     }
     if (command == "ciclo") {
       override_ = true;
-      benchCycle_ = dispenser_.start(1, saved_["openMs"] | DeviceConfig::FOOD_OPEN_MS, millis());
+      benchCycle_ = dispenser_.start(1, foodOpenMs(), millis());
       Serial.println(benchCycle_ ? "Un ciclo de prueba. La cantidad no esta medida." : "No se pudo iniciar el ciclo.");
       continue;
     }
     float grams = 0;
-    unsigned long duration = 0;
-    if (sscanf(command.c_str(), "cal %f %lu %c", &grams, &duration, &extra) == 2) {
-      if (!std::isfinite(grams) || grams <= 0 || grams > 1000 || duration < 50 || duration > 10000) {
-        Serial.println("Usa cal <gramos estimados por ciclo> <apertura en ms de 50 a 10000>.");
+    if (sscanf(command.c_str(), "cal %f %c", &grams, &extra) == 1) {
+      if (!std::isfinite(grams) || grams <= 0 || grams > 1000) {
+        Serial.println("Usa cal <gramos estimados por ciclo>.");
         continue;
       }
       saved_["gramsPerCycle"] = grams;
-      saved_["openMs"] = duration;
-      if (save()) Serial.printf("Calibracion guardada: %.2f g estimados por ciclo, %lu ms.\n", grams, duration);
+      if (save()) Serial.printf("Calibracion guardada: %.2f g estimados por ciclo.\n", grams);
       continue;
     }
     if (command.startsWith("hora ")) {
@@ -922,18 +981,17 @@ void FeederController::serialCommand() {
       else Serial.println("La hora debe ser una marca Unix UTC valida.");
       continue;
     }
-    Serial.println("Usa estado, p 2500, l 1600, off, on, ciclo, cal 20 800 u hora <Unix UTC>.");
+    Serial.println("Usa estado, p 2500, l 1600, off, on, ciclo, cal 20 u hora <Unix UTC>.");
   }
 }
 
 void FeederController::report(uint32_t now) {
-  const auto distance = presence_.distance(now);
   Serial.printf("WiFi:%d MQTT:%d UUID:%s Hora:%s Acceso:%s PWM:%s Resultados:%u\n", int(WiFi.status()),
     mqtt_.connected(), DeviceConfig::DEVICE_ID, timestamp().c_str(), gate_.observedState(),
     override_ ? "manual" : "automatico", unsigned(saved_["events"].size()));
   Serial.printf("Presencia:%s RFID:%s Calibracion:%.2f g/ciclo estimados, %lu ms\n",
-    distance ? String(*distance).c_str() : "sin lectura", rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS).c_str(),
-    saved_["gramsPerCycle"].as<float>(), static_cast<unsigned long>(saved_["openMs"].as<uint32_t>()));
+    presence_.present() ? "si" : "no", rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS).c_str(),
+    saved_["gramsPerCycle"].as<float>(), static_cast<unsigned long>(foodOpenMs()));
   if (!fault_.isEmpty()) Serial.println(fault_);
 }
 

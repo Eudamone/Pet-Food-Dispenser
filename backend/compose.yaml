@@ -16,12 +16,24 @@ services:
     restart: unless-stopped
   broker:
     image: eclipse-mosquitto:2.0.22
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cp /run/pet-feeder/passwd /run/pet-feeder/acl /mosquitto/config/
+        chown mosquitto:mosquitto /mosquitto/config/passwd /mosquitto/config/acl
+        chmod 600 /mosquitto/config/passwd /mosquitto/config/acl
+        exec /usr/sbin/mosquitto -c /run/pet-feeder/mosquitto.conf
     ports:
       - "${MQTT_PORT:-1883}:1883"
     volumes:
-      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mqtt/mosquitto.private.conf:/run/pet-feeder/mosquitto.conf:ro
+      - ./mqtt/acl:/run/pet-feeder/acl:ro
+      - ./mqtt/.local/passwd:/run/pet-feeder/passwd:ro
+    environment:
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Configura MQTT_BACKEND_PASSWORD}
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "pet-feeder/health", "-n"]
+      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -u backend -P \"$$MQTT_BACKEND_PASSWORD\" -t pet-feeder/health -n"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -38,6 +50,8 @@ services:
       AUTH_DRIVER: local
       AUTH_SECRET: ${AUTH_SECRET:?Configura AUTH_SECRET en el archivo de entorno}
       MQTT_URL: mqtt://broker:1883
+      MQTT_USERNAME: backend
+      MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Configura MQTT_BACKEND_PASSWORD}
       MQTT_ALLOW_INSECURE: "true"
       DEFAULT_FEEDER_ID: ${DEFAULT_FEEDER_ID:-11111111-1111-4111-8111-111111111111}
       DEFAULT_FEEDER_NAME: Comedero principal

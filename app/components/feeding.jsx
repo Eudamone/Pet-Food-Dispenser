@@ -102,6 +102,9 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
   const [daily, setDaily] = useState(
     plan?.maxDailyDispensedGrams?.toString() || '',
   );
+  const [opening, setOpening] = useState(
+    String(plan?.foodOpenSeconds ?? 10),
+  );
   const action = useAction();
   if (!feeder)
     return (
@@ -116,11 +119,15 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
   async function save(nextSlots, enabled = plan?.enabled ?? false) {
     return action.run(async () => {
       const maxDailyDispensedGrams = positiveNumber(daily, 'El máximo diario');
+      const foodOpenSeconds = Number(opening);
+      if (!Number.isInteger(foodOpenSeconds) || foodOpenSeconds < 1 || foodOpenSeconds > 60)
+        throw new Error('La apertura debe durar entre 1 y 60 segundos.');
       await request(`/feeders/${feeder.id}/plan`, {
         method: 'PUT',
         body: {
           expectedRevision: revision,
           maxDailyDispensedGrams,
+          foodOpenSeconds,
           enabled,
           slots: nextSlots,
         },
@@ -151,8 +158,14 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
           onChangeText={setDaily}
           keyboardType="decimal-pad"
         />
+        <Field
+          label="Apertura de la tolva por ciclo (segundos)"
+          value={opening}
+          onChangeText={setOpening}
+          keyboardType="number-pad"
+        />
         <Button
-          title="Guardar máximo diario"
+          title="Guardar ajustes de dosificación"
           secondary
           disabled={action.busy}
           onPress={() => save(slots)}

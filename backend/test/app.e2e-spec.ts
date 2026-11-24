@@ -28,6 +28,7 @@ describe('API y autorización', () => {
     connected: false,
     sendConfiguration: vi.fn(),
     sendManualDispense: vi.fn(),
+    sendServoPosition: vi.fn(),
     confirmResults: vi.fn(),
   };
   const user = new User('owner-1', 'Ana', 'ana@example.com');
@@ -317,6 +318,50 @@ describe('API y autorización', () => {
       expect(feeder.isPetAuthorized(petId)).toBe(false);
     } finally {
       for (const id of ids) feeder.removeAuthorizedPet(id);
+    }
+  });
+
+  it('guarda la duración de la tolva y valida su rango', async () => {
+    const path = `/feeders/${feederId}/plan`;
+    const payload = { expectedRevision: 0, maxDailyDispensedGrams: 100, enabled: false, slots: [] };
+    const api = request(app.getHttpServer());
+    for (const seconds of [0, 61, 2.5]) {
+      await api.put(path).set('Authorization', 'Bearer test')
+        .send({ ...payload, foodOpenSeconds: seconds }).expect(400);
+    }
+    await api.put(path).set('Authorization', 'Bearer test').send(payload).expect(200)
+      .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(10));
+    await api.put(path).set('Authorization', 'Bearer test')
+      .send({ ...payload, foodOpenSeconds: 17 }).expect(200)
+      .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(17));
+  });
+
+  it('controla cada servo y espera el resultado del dispositivo', async () => {
+    const path = `/feeders/${feederId}/servos`;
+    const api = request(app.getHttpServer());
+    feeder.updateObservedState(new Date(), 'closed', null);
+    connection.connected = true;
+    try {
+      await api.post(path).set('Authorization', 'Bearer test')
+        .send({ servo: 'food', position: 'other' }).expect(400);
+      for (const [servo, position, applied] of [
+        ['food', 'open', true],
+        ['access', 'closed', false],
+      ] as const) {
+        const { body } = await api.post(path).set('Authorization', 'Bearer test')
+          .send({ servo, position }).expect(202);
+        expect(body.status).toBe('pending');
+        expect(connection.sendServoPosition).toHaveBeenLastCalledWith(
+          feederId, expect.objectContaining({ requestId: body.requestId, servo, position }),
+        );
+        await deviceService.synchronize(feederId, {
+          id: body.requestId, kind: 'servoResult', applied,
+        });
+        await api.get(`${path}/${body.requestId}`).set('Authorization', 'Bearer test').expect(200)
+          .expect(({ body: result }) => expect(result.status).toBe(applied ? 'applied' : 'rejected'));
+      }
+    } finally {
+      connection.connected = false;
     }
   });
 

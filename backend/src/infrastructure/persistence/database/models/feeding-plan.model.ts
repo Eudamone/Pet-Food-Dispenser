@@ -1,5 +1,6 @@
 import { Column, Entity, ForeignKey, PrimaryColumn } from 'typeorm';
 import { FeedingSlot } from '../../../../domain/entities/FeedingSlot.js';
+import { DEFAULT_FOOD_OPEN_SECONDS } from '../../../../domain/entities/FeedingPlan.js';
 import { FeederDeviceModel } from './feeder-device.model.js';
 
 @Entity('feeding_plans')
@@ -49,4 +50,7 @@ export class FeedingPlanModel {
 
   @Column('double precision')
   maxDailyDispensedGrams!: number;
+
+  @Column({ type: 'integer', default: DEFAULT_FOOD_OPEN_SECONDS })
+  foodOpenSeconds = DEFAULT_FOOD_OPEN_SECONDS;
 }

@@ -26,6 +26,56 @@ const gateLabels = {
   unknown: 'Sin confirmar',
 };
 
+function ServoControls({ feeder, online, request, refresh }) {
+  const action = useAction();
+  async function move(servo, position) {
+    await action.run(async () => {
+      const path = `/feeders/${feeder.id}/servos`;
+      let result = await request(path, {
+        method: 'POST',
+        body: { servo, position },
+      });
+      const deadline = Date.now() + 12000;
+      while (result.status === 'pending' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        result = await request(`${path}/${result.requestId}`);
+      }
+      if (result.status !== 'applied')
+        throw new Error(result.reason || 'El alimentador no confirmó el movimiento.');
+      await refresh();
+    }, 'El alimentador aplicó la orden.');
+  }
+
+  return (
+    <Card>
+      <Text style={styles.heading}>Control de compuertas</Text>
+      <Copy>Comprueba que el acceso esté despejado antes de cerrarlo.</Copy>
+      <Copy>La tolva se cierra después del tiempo configurado en Horarios.</Copy>
+      {[
+        ['access', 'Acceso'],
+        ['food', 'Tolva'],
+      ].map(([servo, label]) => (
+        <Row key={servo}>
+          <Button
+            small
+            title={`Abrir ${label.toLowerCase()}`}
+            disabled={!online || action.busy}
+            onPress={() => move(servo, 'open')}
+          />
+          <Button
+            small
+            secondary
+            title={`Cerrar ${label.toLowerCase()}`}
+            disabled={!online || action.busy}
+            onPress={() => move(servo, 'closed')}
+          />
+        </Row>
+      ))}
+      <Feedback action={action} />
+    </Card>
+  );
+}
+
 export function FeederLink({ request, refresh, onSelect }) {
   const [discovered, setDiscovered] = useState([]);
   const [deviceId, setDeviceId] = useState('');
@@ -262,6 +312,7 @@ export function Dashboard({
               onPress={() => onTab('Horarios')}
             />
           </Card>
+          <ServoControls feeder={feeder} online={online} request={request} refresh={refresh} />
           <Card>
             <Text style={styles.heading}>Dispensar ahora</Text>
             <Copy>

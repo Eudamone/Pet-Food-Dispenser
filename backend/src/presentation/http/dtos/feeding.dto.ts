@@ -6,6 +6,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsIn,
   IsNumber,
   IsPositive,
   IsUUID,
@@ -15,6 +16,8 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { MAX_FOOD_OPEN_SECONDS } from '../../../domain/entities/FeedingPlan.js';
+import { SERVO_POSITIONS, SERVOS, type ServoPosition, type ServoName } from '../../../domain/ports/device-messenger.port.js';
 
 class FeedingSlotDto {
   @ValidateIf((_, value) => value !== undefined)
@@ -51,6 +54,12 @@ export class SaveFeedingPlanDto {
   @IsPositive()
   maxDailyDispensedGrams: number;
 
+  @ValidateIf((_, value) => value !== undefined)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_FOOD_OPEN_SECONDS)
+  foodOpenSeconds?: number;
+
   @IsBoolean()
   enabled: boolean;
 
@@ -69,4 +78,12 @@ export class ManualDispenseDto {
   @ValidateIf((_, value) => value !== undefined)
   @Matches(/^[A-Za-z0-9:_-]{1,120}$/)
   requestId?: string;
+}
+
+export class ServoCommandDto {
+  @IsIn(SERVOS)
+  servo: ServoName;
+
+  @IsIn(SERVO_POSITIONS)
+  position: ServoPosition;
 }

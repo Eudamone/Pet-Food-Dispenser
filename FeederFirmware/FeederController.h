@@ -5,10 +5,10 @@
 #include <Preferences.h>
 #include <PubSubClient.h>
 #include <RTClib.h>
-#include <VL53L0X.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <optional>
+#include <freertos/queue.h>
 
 #include "DeviceConfig.h"
 
@@ -20,13 +20,10 @@ class RfidReader {
   uint32_t sequence() const;
 
  private:
-  void finish(uint32_t now);
-  uint8_t bytes_[64]{};
-  size_t used_ = 0;
-  uint32_t receivedAt_ = 0;
+  static void readTags(void* queue);
+  QueueHandle_t scans_ = nullptr;
   uint32_t frameAt_ = 0;
   uint32_t sequence_ = 0;
-  bool overflow_ = false;
   String frame_;
 };
 
@@ -34,14 +31,12 @@ class PresenceSensor {
  public:
   void begin();
   void tick(uint32_t now);
-  std::optional<uint16_t> distance(uint32_t now) const;
+  bool present() const;
 
  private:
-  VL53L0X sensor_;
-  bool ready_ = false;
-  uint32_t checkedAt_ = 0;
-  uint32_t sampledAt_ = 0;
-  std::optional<uint16_t> distance_;
+  bool lastReading_ = false;
+  bool present_ = false;
+  uint32_t changedAt_ = 0;
 };
 
 class Clock {
@@ -51,13 +46,12 @@ class Clock {
   uint32_t utc() const;
   bool setUtc(uint32_t utc);
   std::optional<DateTime> nowLocal(uint32_t now) const;
-  uint32_t monotonicMs() const;
 
  private:
   RTC_DS3231 rtc_;
   bool ready_ = false;
   uint32_t checkedAt_ = 0;
-  uint32_t epoch_ = 0;
+  uint32_t localEpoch_ = 0;
   uint32_t epochAt_ = 0;
 };
 
@@ -92,12 +86,14 @@ class Dispenser {
   bool isRunning() const;
   bool finished() const;
   bool failed() const;
+  bool manualOpen() const;
+  bool setManualPosition(bool open, uint32_t duration, uint32_t now);
   void reset();
   void stop();
   bool setPulse(uint16_t pulse);
 
  private:
-  enum class State { Idle, BootClosing, Priming, Opening, Holding, Closing, Pausing, Finished, Failed };
+  enum class State { Idle, BootClosing, Priming, Opening, Holding, Closing, Pausing, Finished, Failed, ManualOpen };
   State state_ = State::Idle;
   uint32_t changedAt_ = 0;
   uint32_t openMs_ = 0;
@@ -118,6 +114,7 @@ class FeederController {
   void processIncoming();
   void applyConfiguration(JsonObjectConst command);
   void acceptManual(JsonObjectConst command);
+  void acceptServo(JsonObjectConst command);
   void confirm(JsonArrayConst ids);
   bool validateConfiguration(JsonObjectConst command) const;
   bool save();
@@ -136,6 +133,7 @@ class FeederController {
   void checkRfid(uint32_t now);
   void serialCommand();
   void report(uint32_t now);
+  uint32_t foodOpenMs() const;
   String date() const;
   String timestamp() const;
   String eventId() const;
@@ -168,5 +166,7 @@ class FeederController {
   bool storageReady_ = false;
   bool networkReady_ = false;
   bool override_ = false;
+  bool accessHeldOpen_ = false;
+  bool mdnsReady_ = false;
   bool benchCycle_ = false;
 };

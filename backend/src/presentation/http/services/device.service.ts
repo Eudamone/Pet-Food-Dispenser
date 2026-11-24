@@ -37,7 +37,9 @@ import {
   DEVICE_MESSENGER,
   type DeviceMessenger,
   type ManualDispenseCommand,
+  type ServoCommand,
 } from '../../../domain/ports/device-messenger.port.js';
+import type { ServoCommandDto } from '../dtos/feeding.dto.js';
 import { readDeviceResult } from './device-result.js';
 
 export type DiscoveredFeederSource = 'mqtt' | 'default';
@@ -75,6 +77,12 @@ const SCANNED_RFID_TTL_MS = 60_000;
 const MAX_SCANNED_TAGS_PER_DEVICE = 5;
 const MANUAL_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_MANUAL_REQUESTS = 1000;
+const SERVO_REQUEST_TTL_MS = 60_000;
+
+type ServoRequest = ServoCommand & {
+  status: 'pending' | 'applied' | 'rejected';
+  reason: string | null;
+};
 
 @Injectable()
 export class DeviceService implements OnModuleInit, OnModuleDestroy {
@@ -87,6 +95,7 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private sending = false;
   private readonly manualRequests = new Map<string, ManualDispenseCommand>();
+  private readonly servoRequests = new Map<string, ServoRequest>();
 
   constructor(
     @Inject(DEVICE_REPOSITORY) private readonly feeders: DeviceRepository,
@@ -141,6 +150,14 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
     const normalizedId = deviceId.trim().toLowerCase();
     const event = readDeviceResult(normalizedId, payload);
     switch (event.kind) {
+      case 'servoResult': {
+        const request = this.servoRequests.get(event.id);
+        if (request?.deviceId === normalizedId && request.status === 'pending') {
+          request.status = event.applied ? 'applied' : 'rejected';
+          request.reason = event.reason;
+        }
+        break;
+      }
       case 'configurationApplied':
         await this.feeders.confirmPlan(normalizedId, event.revision);
         break;
@@ -460,6 +477,41 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       status: 'pending' as const,
       dispatched: this.messenger.connected,
     };
+  }
+
+  async requestServoPosition(user: User, id: string, input: ServoCommandDto) {
+    const device = await this.getDevice(user, id);
+    const now = Date.now();
+    if (!this.messenger.connected || !this.messenger.sendServoPosition ||
+        !device.lastSeenAt || now - device.lastSeenAt.getTime() > 45_000)
+      throw new ServiceUnavailableException('El alimentador no está conectado.');
+    for (const [requestId, request] of this.servoRequests) {
+      if (now - Date.parse(request.requestedAt) > SERVO_REQUEST_TTL_MS)
+        this.servoRequests.delete(requestId);
+      else if (request.deviceId === device.id && request.status === 'pending' &&
+               now - Date.parse(request.requestedAt) < 12_000)
+        throw new ConflictException('Hay un movimiento pendiente de confirmación.');
+    }
+    if (this.servoRequests.size >= MAX_MANUAL_REQUESTS)
+      throw new ServiceUnavailableException('Espera antes de enviar otro movimiento.');
+    const command: ServoCommand = {
+      ...input,
+      kind: 'servoPosition',
+      requestId: randomUUID(),
+      deviceId: device.id,
+      requestedAt: new Date(now).toISOString(),
+    };
+    this.servoRequests.set(command.requestId, { ...command, status: 'pending', reason: null });
+    this.messenger.sendServoPosition(device.id, command);
+    return this.servoRequests.get(command.requestId);
+  }
+
+  async getServoRequest(user: User, id: string, requestId: string) {
+    const device = await this.getDevice(user, id);
+    const request = this.servoRequests.get(requestId);
+    if (!request || request.deviceId !== device.id)
+      throw new NotFoundException('No se encontró la solicitud de movimiento.');
+    return request;
   }
 
   async listScannedTags(

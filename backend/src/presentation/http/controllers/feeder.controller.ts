@@ -22,6 +22,7 @@ import {
   FeederResponseDto,
 } from '../dtos/feeder.dto.js';
 import { DeviceService } from '../services/device.service.js';
+import { ServoCommandDto } from '../dtos/feeding.dto.js';
 import { AuthGuard, type AuthenticatedRequest } from './auth.guard.js';
 
 @Controller('feeders')
@@ -103,6 +104,25 @@ export class FeedersController {
     return (await this.feeders.listScannedTags(request.user, id)).map((item) =>
       ScannedRfidTagResponseDto.from(item),
     );
+  }
+
+  @Post(':id/servos')
+  @HttpCode(202)
+  requestServo(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ServoCommandDto,
+  ) {
+    return this.feeders.requestServoPosition(request.user, id, input);
+  }
+
+  @Get(':id/servos/:requestId')
+  getServoRequest(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+  ) {
+    return this.feeders.getServoRequest(request.user, id, requestId);
   }
 
   @Put(':id/pets/:petId')

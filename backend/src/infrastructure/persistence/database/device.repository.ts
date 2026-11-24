@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import type { FeederDevice } from '../../../domain/entities/FeederDevice.js';
+import { DEFAULT_FOOD_OPEN_SECONDS } from '../../../domain/entities/FeedingPlan.js';
 import type { GateState } from '../../../domain/entities/FeederDevice.js';
 import type {
   AuthorizedPetConfig,
@@ -49,6 +50,7 @@ export class DatabaseDeviceRepository implements DeviceRepository {
         'maxDailyDispensedGrams',
       )
       .addSelect("COALESCE(plan.slots, '[]'::jsonb)", 'slots')
+      .addSelect('plan.foodOpenSeconds', 'foodOpenSeconds')
       .where('device.desiredRevision > device.appliedRevision')
       .getRawMany<
         PendingPlan & { ownerId: string; authorizedPetIds: string[] }
@@ -89,6 +91,7 @@ export class DatabaseDeviceRepository implements DeviceRepository {
         maxBowlGrams: row.maxBowlGrams,
         enabled: Boolean(row.enabled),
         maxDailyDispensedGrams: Number(row.maxDailyDispensedGrams),
+        foodOpenSeconds: row.foodOpenSeconds ?? DEFAULT_FOOD_OPEN_SECONDS,
         slots: Array.isArray(row.slots) ? row.slots : [],
         authorizedPetIds: petIds,
         authorizedPets,

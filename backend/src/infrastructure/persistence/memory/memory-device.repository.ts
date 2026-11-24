@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { FeederDevice } from '../../../domain/entities/FeederDevice.js';
+import { DEFAULT_FOOD_OPEN_SECONDS } from '../../../domain/entities/FeedingPlan.js';
 import type { GateState } from '../../../domain/entities/FeederDevice.js';
 import type {
   DeviceRepository,
@@ -48,6 +49,7 @@ export class MemoryDeviceRepository implements DeviceRepository {
         maxBowlGrams: device.maxBowlGrams,
         enabled: plan?.enabled ?? false,
         maxDailyDispensedGrams: plan?.maxDailyDispensedGrams ?? 0,
+        foodOpenSeconds: plan?.foodOpenSeconds ?? DEFAULT_FOOD_OPEN_SECONDS,
         slots: plan
           ? plan.slots.map((slot) => ({
               id: slot.id,

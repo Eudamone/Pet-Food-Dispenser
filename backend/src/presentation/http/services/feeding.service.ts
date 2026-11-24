@@ -20,6 +20,7 @@ function planView(plan: FeedingPlan) {
     deviceId: plan.deviceId,
     enabled: plan.enabled,
     maxDailyDispensedGrams: plan.maxDailyDispensedGrams,
+    foodOpenSeconds: plan.foodOpenSeconds,
     slots: plan.slots.map((slot) => ({
       id: slot.id,
       time: slot.time,
@@ -130,6 +131,7 @@ export class FeedingService {
         existing?.id ?? randomUUID(),
         device.id,
         input.maxDailyDispensedGrams,
+        input.foodOpenSeconds ?? existing?.foodOpenSeconds,
       );
       for (const slot of input.slots) {
         plan.addSlot(

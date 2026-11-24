@@ -4,6 +4,7 @@ import type {
   DeviceMessenger,
   FeedingPlanCommand,
   ManualDispenseCommand,
+  ServoCommand,
 } from '../../domain/ports/device-messenger.port.js';
 import { resolveMqttConfig } from './mqtt.config.js';
 
@@ -35,6 +36,10 @@ export class MqttDeviceMessenger implements DeviceMessenger, OnModuleDestroy {
 
   sendManualDispense(deviceId: string, command: ManualDispenseCommand): void {
     this.publish(deviceId, 'cmd/dispense', command);
+  }
+
+  sendServoPosition(deviceId: string, command: ServoCommand): void {
+    this.publish(deviceId, 'cmd/servo', command);
   }
 
   confirmResults(deviceId: string, eventIds: readonly string[]): void {

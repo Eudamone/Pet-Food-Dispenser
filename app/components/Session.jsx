@@ -11,7 +11,7 @@ import {
 const SessionContext = createContext(null);
 const storageKey = 'petfeeder.session';
 const defaultUrl =
-  process.env.EXPO_PUBLIC_API_URL || 'http://192.168.40.82:3000';
+  process.env.EXPO_PUBLIC_API_URL || 'http://petfeeder.local:3000';
 
 export function normalizeUrl(value) {
   const url = value.trim().replace(/\/+$/, '');
@@ -87,7 +87,10 @@ export function SessionProvider({ children }) {
   useEffect(() => {
     AsyncStorage.getItem(storageKey)
       .then((saved) => {
-        if (saved) setSession({ baseUrl: defaultUrl, ...JSON.parse(saved) });
+        if (!saved) return;
+        const previous = JSON.parse(saved);
+        if (previous.baseUrl !== 'http://192.168.40.82:3000')
+          setSession({ baseUrl: defaultUrl, ...previous });
       })
       .catch(() => {})
       .finally(() => setReady(true));
