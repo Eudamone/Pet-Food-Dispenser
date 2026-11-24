@@ -138,8 +138,9 @@ export function readDeviceResult(
         id,
         deviceId,
         data.source,
-        portion(data.targetGrams),
+        data.targetGrams == null ? null : portion(data.targetGrams),
         data.slotId == null ? null : text(data.slotId, 'horario'),
+        data.durationSeconds == null ? null : portion(data.durationSeconds),
       );
       if (data.startedAt != null) record.markStarted(instant(data.startedAt));
       switch (data.status) {

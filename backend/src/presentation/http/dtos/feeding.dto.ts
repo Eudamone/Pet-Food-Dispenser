@@ -16,7 +16,16 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { SERVO_POSITIONS, SERVOS, type ServoPosition, type ServoName } from '../../../domain/ports/device-messenger.port.js';
+import {
+  SERVO_POSITIONS,
+  SERVOS,
+  type ServoPosition,
+  type ServoName,
+} from '../../../domain/ports/device-messenger.port.js';
+import {
+  MAX_DOSE_SECONDS,
+  MAX_MANUAL_OPEN_SECONDS,
+} from '../../../domain/entities/dose-target.js';
 
 class FeedingSlotDto {
   @ValidateIf((_, value) => value !== undefined)
@@ -35,9 +44,16 @@ class FeedingSlotDto {
   @Max(6, { each: true })
   days: number[];
 
+  @ValidateIf((_, value) => value != null)
   @IsNumber()
   @IsPositive()
-  targetGrams: number;
+  targetGrams?: number | null;
+
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_DOSE_SECONDS)
+  durationSeconds?: number | null;
 
   @IsBoolean()
   enabled: boolean;
@@ -49,9 +65,16 @@ export class SaveFeedingPlanDto {
   @Max(2147483647)
   expectedRevision: number;
 
+  @ValidateIf((_, value) => value != null)
   @IsNumber()
   @IsPositive()
-  maxDailyDispensedGrams: number;
+  maxDailyDispensedGrams?: number | null;
+
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_MANUAL_OPEN_SECONDS)
+  maxDailyOpenSeconds?: number | null;
 
   @IsBoolean()
   enabled: boolean;
@@ -64,9 +87,16 @@ export class SaveFeedingPlanDto {
 }
 
 export class ManualDispenseDto {
+  @ValidateIf((_, value) => value != null)
   @IsNumber()
   @IsPositive()
-  targetGrams: number;
+  targetGrams?: number | null;
+
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_DOSE_SECONDS)
+  durationSeconds?: number | null;
 
   @ValidateIf((_, value) => value !== undefined)
   @Matches(/^[A-Za-z0-9:_-]{1,120}$/)
@@ -79,4 +109,10 @@ export class ServoCommandDto {
 
   @IsIn(SERVO_POSITIONS)
   position: ServoPosition;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsInt()
+  @Min(0)
+  @Max(MAX_MANUAL_OPEN_SECONDS)
+  openForSeconds?: number;
 }

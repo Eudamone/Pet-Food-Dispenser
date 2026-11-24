@@ -32,14 +32,14 @@ Para compilar `FeederFirmware`, usa ESP32 Dev Module y las bibliotecas ArduinoJs
 
 Los servos usan 5 V externos y GND común. Desconecta el positivo de VIN externo al programar por USB. El DS3231 conserva la hora local de Bogotá. El firmware usa esa hora para los horarios y convierte a UTC al publicar eventos.
 
-El FC-51 se usa para detectar a la mascota. La posición de la compuerta se estima por tiempo. Mantén despejada la trayectoria al probar movimientos y haz las pruebas de banco sin mascota.
+Un tag registrado y autorizado abre el acceso. El FC-51 detecta presencia frente al comedero. Cuando pasan dos segundos seguidos sin presencia, el ESP32 ordena cerrar. Si detecta presencia durante el cierre, vuelve a abrir. La app muestra la posición ordenada por el ESP32.
 
 ## Uso de la app
 
-- **Inicio.** Vincula un alimentador, consulta su conexión y estado, envía una dosis manual en gramos estimados y abre o cierra cada compuerta. El acceso queda abierto tras una orden manual hasta que se cierre. La tolva se cierra a los 10 segundos o al pulsar Cerrar.
+- **Inicio.** Vincula el alimentador, consulta su estado y elige los segundos de «Dispensar ahora». También puedes abrir el acceso o la tolva por un tiempo o hasta que pulses «Cerrar». El FC-51 sigue activo al cerrar el acceso.
 - **Mascotas.** Crea, edita y elimina mascotas. Registra etiquetas RFID desde el lector o por UID, asígnalas y activa o retira permisos de acceso.
-- **Horarios.** Crea, edita, pausa o elimina horarios por hora y día y configura el máximo diario estimado. La tolva permanece abierta 10 segundos por ciclo. Calibra los gramos por ciclo con el alimento que vas a usar.
+- **Horarios.** Elige la hora, los días y cuánto tiempo se abre la tolva (de 1 a 60 segundos por dosis, con 10 sugeridos). Si una apertura manual coincide con una dosis, la dosis se omite y la apertura continúa según la orden manual. El límite diario en segundos es opcional y se aplica a las dosis.
 - **Historial.** Consulta visitas RFID y resultados de dispensación manual o programada. Una solicitud pendiente puede volver a enviarse con el mismo identificador.
 - **Ajustes.** Registra una cuenta local, inicia o cierra sesión, edita el perfil y cambia la dirección del servidor o el nombre del alimentador.
 
-El montaje mide presencia e identifica etiquetas. Las porciones son estimadas por ciclos, sin medición de peso o consumo.
+El montaje detecta presencia e identifica etiquetas. Las dosis se configuran por tiempo. Los registros anteriores conservan su objetivo original en gramos.

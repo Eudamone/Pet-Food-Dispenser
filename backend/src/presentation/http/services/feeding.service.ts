@@ -19,13 +19,17 @@ function planView(plan: FeedingPlan) {
     id: plan.id,
     deviceId: plan.deviceId,
     enabled: plan.enabled,
-    maxDailyDispensedGrams: plan.maxDailyDispensedGrams,
+    maxDailyDispensedGrams: plan.maxDailyDispensedGrams || null,
+    maxDailyOpenSeconds: plan.maxDailyOpenSeconds,
     foodOpenSeconds: plan.foodOpenSeconds,
     slots: plan.slots.map((slot) => ({
       id: slot.id,
       time: slot.time,
       days: slot.days,
       targetGrams: slot.targetGrams,
+      ...(slot.durationSeconds === null
+        ? {}
+        : { durationSeconds: slot.durationSeconds }),
       enabled: slot.enabled,
     })),
   };
@@ -62,6 +66,7 @@ export class FeedingService {
         source: record.source,
         slotId: record.slotId,
         targetGrams: record.targetGrams,
+        durationSeconds: record.durationSeconds,
         startedAt: record.startedAt,
         finishedAt: record.finishedAt,
         status: record.status,
@@ -104,12 +109,7 @@ export class FeedingService {
     deviceId: string,
     input: ManualDispenseDto,
   ) {
-    return this.devices.requestManualDispense(
-      user,
-      deviceId,
-      input.targetGrams,
-      input.requestId,
-    );
+    return this.devices.requestManualDispense(user, deviceId, input);
   }
 
   async getPlan(user: User, deviceId: string) {
@@ -130,7 +130,11 @@ export class FeedingService {
       plan = new FeedingPlan(
         existing?.id ?? randomUUID(),
         device.id,
-        input.maxDailyDispensedGrams,
+        input.maxDailyDispensedGrams ??
+          (existing?.maxDailyDispensedGrams || null),
+        input.maxDailyOpenSeconds === undefined
+          ? (existing?.maxDailyOpenSeconds ?? null)
+          : input.maxDailyOpenSeconds,
       );
       for (const slot of input.slots) {
         plan.addSlot(
@@ -138,8 +142,9 @@ export class FeedingService {
             slot.id ?? randomUUID(),
             slot.time,
             slot.days,
-            slot.targetGrams,
+            slot.targetGrams ?? null,
             slot.enabled,
+            slot.durationSeconds ?? null,
           ),
           device.maxBowlGrams,
         );

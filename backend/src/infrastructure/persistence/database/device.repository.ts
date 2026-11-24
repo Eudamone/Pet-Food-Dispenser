@@ -49,6 +49,7 @@ export class DatabaseDeviceRepository implements DeviceRepository {
         'COALESCE(plan.maxDailyDispensedGrams, 0)',
         'maxDailyDispensedGrams',
       )
+      .addSelect('COALESCE(plan.maxDailyOpenSeconds, 0)', 'maxDailyOpenSeconds')
       .addSelect("COALESCE(plan.slots, '[]'::jsonb)", 'slots')
       .where('device.desiredRevision > device.appliedRevision')
       .getRawMany<
@@ -93,6 +94,7 @@ export class DatabaseDeviceRepository implements DeviceRepository {
         maxBowlGrams: row.maxBowlGrams,
         enabled: Boolean(row.enabled),
         maxDailyDispensedGrams: Number(row.maxDailyDispensedGrams),
+        maxDailyOpenSeconds: Number(row.maxDailyOpenSeconds),
         foodOpenSeconds: FOOD_OPEN_SECONDS,
         slots: Array.isArray(row.slots) ? row.slots : [],
         authorizedPetIds: petIds,

@@ -19,8 +19,11 @@ export class DispensingRecordModel {
   @Column('text')
   source!: DispensingSource;
 
-  @Column('double precision')
-  targetGrams!: number;
+  @Column({ type: 'double precision', nullable: true })
+  targetGrams: number | null = null;
+
+  @Column({ type: 'integer', nullable: true })
+  durationSeconds: number | null = null;
 
   @Column({ type: 'text', nullable: true })
   slotId: string | null = null;

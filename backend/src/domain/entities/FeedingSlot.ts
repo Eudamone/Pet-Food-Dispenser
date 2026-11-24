@@ -1,3 +1,5 @@
+import { validateDoseTarget } from './dose-target.js';
+
 export class FeedingSlot {
   private readonly _days: number[];
 
@@ -5,8 +7,9 @@ export class FeedingSlot {
     public readonly id: string,
     public readonly time: string,
     days: readonly number[],
-    public readonly targetGrams: number,
+    public readonly targetGrams: number | null,
     public readonly enabled = true,
+    public readonly durationSeconds: number | null = null,
   ) {
     if (!id.trim()) throw new Error('El horario necesita un identificador.');
     if (time.length !== 5 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))
@@ -17,8 +20,7 @@ export class FeedingSlot {
       days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
     )
       throw new Error('Los días deben ser únicos y estar entre 0 y 6.');
-    if (!Number.isFinite(targetGrams) || targetGrams <= 0)
-      throw new Error('El objetivo debe ser positivo.');
+    validateDoseTarget(targetGrams, durationSeconds);
     this._days = [...days];
   }
 
@@ -27,7 +29,14 @@ export class FeedingSlot {
   }
 
   withSchedule(time: string, days: readonly number[]): FeedingSlot {
-    return new FeedingSlot(this.id, time, days, this.targetGrams, this.enabled);
+    return new FeedingSlot(
+      this.id,
+      time,
+      days,
+      this.targetGrams,
+      this.enabled,
+      this.durationSeconds,
+    );
   }
 
   withTarget(targetGrams: number): FeedingSlot {
@@ -47,6 +56,7 @@ export class FeedingSlot {
       this._days,
       this.targetGrams,
       enabled,
+      this.durationSeconds,
     );
   }
 

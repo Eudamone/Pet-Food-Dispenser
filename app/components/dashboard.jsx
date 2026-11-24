@@ -15,6 +15,12 @@ import {
   styles,
   useAction,
 } from './ui';
+import {
+  DEFAULT_DOSE_SECONDS,
+  MAX_MANUAL_OPEN_SECONDS,
+  doseLabel,
+  durationInRange,
+} from './duration';
 
 const gateLabels = {
   moving: 'En movimiento',
@@ -23,17 +29,73 @@ const gateLabels = {
   opening: 'Abriendo',
   closing: 'Cerrando',
   blocked: 'Bloqueada',
-  unknown: 'Sin confirmar',
+  unknown: 'Sin estado',
 };
+
+function ServoControl({ servo, label, disabled, move }) {
+  const [indefinite, setIndefinite] = useState(false);
+  const [seconds, setSeconds] = useState(DEFAULT_DOSE_SECONDS);
+  return (
+    <>
+      <Text style={styles.heading}>{label}</Text>
+      <Row>
+        <Choice
+          title="Por tiempo"
+          selected={!indefinite}
+          onPress={() => setIndefinite(false)}
+        />
+        <Choice
+          title="Hasta cerrarla"
+          selected={indefinite}
+          onPress={() => setIndefinite(true)}
+        />
+      </Row>
+      {!indefinite ? (
+        <Field
+          label="Tiempo abierta (s)"
+          value={seconds}
+          onChangeText={setSeconds}
+          keyboardType="number-pad"
+          maxLength={5}
+        />
+      ) : null}
+      <Row>
+        <Button
+          small
+          title="Abrir"
+          disabled={disabled}
+          onPress={() =>
+            move(servo, 'open', () =>
+              indefinite
+                ? 0
+                : durationInRange(seconds, MAX_MANUAL_OPEN_SECONDS),
+            )
+          }
+        />
+        <Button
+          small
+          secondary
+          title="Cerrar"
+          disabled={disabled}
+          onPress={() => move(servo, 'closed')}
+        />
+      </Row>
+    </>
+  );
+}
 
 function ServoControls({ feeder, online, request, refresh }) {
   const action = useAction();
-  async function move(servo, position) {
+  async function move(servo, position, openingDuration) {
     await action.run(async () => {
       const path = `/feeders/${feeder.id}/servos`;
       let result = await request(path, {
         method: 'POST',
-        body: { servo, position },
+        body: {
+          servo,
+          position,
+          ...(openingDuration ? { openForSeconds: openingDuration() } : {}),
+        },
       });
       const deadline = Date.now() + 12000;
       while (result.status === 'pending' && Date.now() < deadline) {
@@ -41,7 +103,9 @@ function ServoControls({ feeder, online, request, refresh }) {
         result = await request(`${path}/${result.requestId}`);
       }
       if (result.status !== 'applied')
-        throw new Error(result.reason || 'El alimentador no confirmó el movimiento.');
+        throw new Error(
+          result.reason || 'El alimentador no confirmó el movimiento.',
+        );
       await refresh();
     }, 'El alimentador aplicó la orden.');
   }
@@ -50,26 +114,20 @@ function ServoControls({ feeder, online, request, refresh }) {
     <Card>
       <Text style={styles.heading}>Control de compuertas</Text>
       <Copy>Comprueba que el acceso esté despejado antes de cerrarlo.</Copy>
-      <Copy>La tolva se cierra sola a los 10 segundos.</Copy>
+      <Copy>
+        Los horarios se omiten si la tolva o el acceso siguen abiertos.
+      </Copy>
       {[
         ['access', 'Acceso'],
         ['food', 'Tolva'],
       ].map(([servo, label]) => (
-        <Row key={servo}>
-          <Button
-            small
-            title={`Abrir ${label.toLowerCase()}`}
-            disabled={!online || action.busy}
-            onPress={() => move(servo, 'open')}
-          />
-          <Button
-            small
-            secondary
-            title={`Cerrar ${label.toLowerCase()}`}
-            disabled={!online || action.busy}
-            onPress={() => move(servo, 'closed')}
-          />
-        </Row>
+        <ServoControl
+          key={servo}
+          servo={servo}
+          label={label}
+          disabled={!online || action.busy}
+          move={move}
+        />
       ))}
       <Feedback action={action} />
     </Card>
@@ -214,7 +272,7 @@ export function Dashboard({
   onTab,
 }) {
   const [linking, setLinking] = useState(false);
-  const [grams, setGrams] = useState('');
+  const [seconds, setSeconds] = useState(DEFAULT_DOSE_SECONDS);
   const [pendingRequest, setPendingRequest] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const action = useAction();
@@ -234,23 +292,19 @@ export function Dashboard({
     dispensing[0];
   async function dispense() {
     await action.run(async () => {
-      const targetGrams =
-        retryRequest?.targetGrams ?? positiveNumber(grams, 'La porción');
-      if (targetGrams > feeder.maxBowlGrams)
-        throw new Error(
-          'La porción supera la capacidad configurada del plato.',
-        );
+      const durationSeconds =
+        retryRequest?.durationSeconds ?? durationInRange(seconds);
       const requestId =
         retryRequest?.requestId ||
         `app-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      setPendingRequest({ requestId, targetGrams });
+      setPendingRequest({ requestId, durationSeconds });
       const result = await request(`/feeders/${feeder.id}/dispense`, {
         method: 'POST',
-        body: { targetGrams, requestId },
+        body: { durationSeconds, requestId },
       });
       await rememberRequest(result);
       if (result.requestId)
-        setPendingRequest({ requestId: result.requestId, targetGrams });
+        setPendingRequest({ requestId: result.requestId, durationSeconds });
       await refresh();
     }, 'Solicitud enviada. Revisa el resultado en el historial.');
   }
@@ -276,12 +330,15 @@ export function Dashboard({
               {online ? 'En línea' : 'Sin conexión reciente'}
             </Copy>
             <Copy style={{ color: colors.white }}>
-              Compuerta: {gateLabels[feeder.gateState] || feeder.gateState}
+              Compuerta de acceso:{' '}
+              {gateLabels[feeder.gateState] || feeder.gateState}
             </Copy>
             <Copy style={{ color: colors.white }}>
               Última conexión: {dateLabel(feeder.lastSeenAt)}
             </Copy>
-            {feeder.lastFault ? (
+            {feeder.lastFault &&
+            feeder.lastFault !==
+              'Sin sensor de cierre; posicion de acceso estimada.' ? (
               <Copy style={{ color: colors.yellow }}>
                 Aviso: {feeder.lastFault}
               </Copy>
@@ -312,21 +369,21 @@ export function Dashboard({
               onPress={() => onTab('Horarios')}
             />
           </Card>
-          <ServoControls feeder={feeder} online={online} request={request} refresh={refresh} />
+          <ServoControls
+            feeder={feeder}
+            online={online}
+            request={request}
+            refresh={refresh}
+          />
           <Card>
             <Text style={styles.heading}>Dispensar ahora</Text>
-            <Copy>
-              La porción es estimada. El equipo no registra peso ni consumo
-              real.
-            </Copy>
             <Field
-              label="Porción objetivo (g)"
+              label="Tiempo de dispensación (s)"
               editable={!action.busy && !retryRequest}
-              value={grams}
-              onChangeText={(value) => {
-                setGrams(value);
-              }}
-              keyboardType="decimal-pad"
+              value={seconds}
+              onChangeText={setSeconds}
+              keyboardType="number-pad"
+              maxLength={2}
             />
             {retryRequest ? (
               <Button
@@ -335,7 +392,7 @@ export function Dashboard({
                 disabled={action.busy}
                 onPress={() => {
                   setPendingRequest(null);
-                  setGrams('');
+                  setSeconds(DEFAULT_DOSE_SECONDS);
                 }}
               />
             ) : null}
@@ -358,7 +415,7 @@ export function Dashboard({
             <Feedback action={action} />
             {latest ? (
               <Copy>
-                Última solicitud: {latest.targetGrams} g objetivo ·{' '}
+                Última solicitud: {doseLabel(latest)} ·{' '}
                 {statusText(latest.status)}
               </Copy>
             ) : null}

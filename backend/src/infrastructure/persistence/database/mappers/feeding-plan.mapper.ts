@@ -6,10 +6,10 @@ export class FeedingPlanMapper {
     const plan = new FeedingPlan(
       row.id,
       row.deviceId,
-      row.maxDailyDispensedGrams,
+      row.maxDailyDispensedGrams || null,
+      row.maxDailyOpenSeconds,
     );
-    for (const slot of row.slots)
-      plan.addSlot(slot, Number.MAX_SAFE_INTEGER);
+    for (const slot of row.slots) plan.addSlot(slot, Number.MAX_SAFE_INTEGER);
     if (row.enabled) plan.enableScheduling(Number.MAX_SAFE_INTEGER);
     return plan;
   }
@@ -21,6 +21,7 @@ export class FeedingPlanMapper {
     row.slots = [...plan.slots];
     row.enabled = plan.enabled;
     row.maxDailyDispensedGrams = plan.maxDailyDispensedGrams;
+    row.maxDailyOpenSeconds = plan.maxDailyOpenSeconds;
     row.foodOpenSeconds = plan.foodOpenSeconds;
     return row;
   }

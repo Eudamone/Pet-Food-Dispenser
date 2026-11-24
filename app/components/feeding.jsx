@@ -12,16 +12,23 @@ import {
   Title,
   confirmDelete,
   dateLabel,
-  positiveNumber,
   styles,
   useAction,
 } from './ui';
+import {
+  DEFAULT_DOSE_SECONDS,
+  MAX_MANUAL_OPEN_SECONDS,
+  doseLabel,
+  durationInRange,
+} from './duration';
 
 const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 function SlotForm({ slot, busy, onSave, close }) {
   const [time, setTime] = useState(slot?.time || '');
-  const [grams, setGrams] = useState(slot?.targetGrams?.toString() || '');
+  const [seconds, setSeconds] = useState(
+    slot?.durationSeconds?.toString() || DEFAULT_DOSE_SECONDS,
+  );
   const [days, setDays] = useState(slot?.days || []);
   const [enabled, setEnabled] = useState(slot?.enabled ?? true);
   const action = useAction();
@@ -34,7 +41,7 @@ function SlotForm({ slot, busy, onSave, close }) {
         ...(slot?.id ? { id: slot.id } : {}),
         time,
         days: [...days].sort((a, b) => a - b),
-        targetGrams: positiveNumber(grams, 'La porción'),
+        durationSeconds: durationInRange(seconds),
         enabled,
       });
       if (result) close();
@@ -54,10 +61,11 @@ function SlotForm({ slot, busy, onSave, close }) {
         maxLength={5}
       />
       <Field
-        label="Porción estimada (g)"
-        value={grams}
-        onChangeText={setGrams}
-        keyboardType="decimal-pad"
+        label="Tiempo de dispensación (s)"
+        value={seconds}
+        onChangeText={setSeconds}
+        keyboardType="number-pad"
+        maxLength={2}
       />
       <Copy>Días</Copy>
       <Row>
@@ -100,7 +108,7 @@ function SlotForm({ slot, busy, onSave, close }) {
 export function Schedules({ feeder, plan, revision, request, refresh }) {
   const [editing, setEditing] = useState(null);
   const [daily, setDaily] = useState(
-    plan?.maxDailyDispensedGrams?.toString() || '',
+    plan?.maxDailyOpenSeconds?.toString() || '',
   );
   const action = useAction();
   if (!feeder)
@@ -115,12 +123,14 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
   const slots = plan?.slots || [];
   async function save(nextSlots, enabled = plan?.enabled ?? false) {
     return action.run(async () => {
-      const maxDailyDispensedGrams = positiveNumber(daily, 'El máximo diario');
+      const maxDailyOpenSeconds = daily.trim()
+        ? durationInRange(daily, MAX_MANUAL_OPEN_SECONDS)
+        : null;
       await request(`/feeders/${feeder.id}/plan`, {
         method: 'PUT',
         body: {
           expectedRevision: revision,
-          maxDailyDispensedGrams,
+          maxDailyOpenSeconds,
           enabled,
           slots: nextSlots,
         },
@@ -143,15 +153,15 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
           {plan?.enabled ? 'Programación activa' : 'Programación pausada'}
         </Copy>
         <Copy>
-          Las porciones son estimadas. No se registra peso ni consumo real.
+          Los horarios usan la hora de Bogotá y la dosis se indica en segundos.
         </Copy>
         <Field
-          label="Máximo diario programado (g)"
+          label="Límite diario de dispensación (s, opcional)"
           value={daily}
           onChangeText={setDaily}
-          keyboardType="decimal-pad"
+          keyboardType="number-pad"
+          maxLength={5}
         />
-        <Copy>La tolva se abre 10 segundos por ciclo.</Copy>
         <Button
           title="Guardar máximo diario"
           secondary
@@ -185,17 +195,14 @@ export function Schedules({ feeder, plan, revision, request, refresh }) {
       ) : null}
       {!slots.length ? (
         <Card>
-          <Copy>
-            Aún no hay horarios. Define el máximo diario y agrega tu primer
-            horario.
-          </Copy>
+          <Copy>Aún no hay horarios.</Copy>
         </Card>
       ) : (
         slots.map((slot) => (
           <Card key={slot.id}>
             <Text style={styles.title}>{slot.time}</Text>
             <Copy>
-              {slot.targetGrams} g estimados ·{' '}
+              {doseLabel(slot)} ·{' '}
               {slot.days.map((day) => dayNames[day]).join(', ')}
             </Copy>
             <Copy>{slot.enabled ? 'Activo' : 'Desactivado'}</Copy>
@@ -300,7 +307,7 @@ export function History({
         ? waiting.map((item) => (
             <Card key={item.requestId}>
               <Text style={styles.heading}>Pendiente de confirmación</Text>
-              <Copy>{item.targetGrams} g objetivo · Solicitud manual</Copy>
+              <Copy>{doseLabel(item)} · Solicitud manual</Copy>
               <Copy>{dateLabel(item.requestedAt)}</Copy>
               <Copy>
                 La solicitud fue enviada. El alimentador aún no ha confirmado el
@@ -317,7 +324,9 @@ export function History({
                       {
                         method: 'POST',
                         body: {
-                          targetGrams: item.targetGrams,
+                          ...(item.durationSeconds == null
+                            ? { targetGrams: item.targetGrams }
+                            : { durationSeconds: item.durationSeconds }),
                           requestId: item.requestId,
                         },
                       },
@@ -343,7 +352,7 @@ export function History({
           <Card key={item.id}>
             <Text style={styles.heading}>
               {type === 'dispensing'
-                ? `${item.targetGrams} g objetivo`
+                ? doseLabel(item)
                 : pets.find((pet) => pet.id === item.petId)?.name ||
                   'Mascota eliminada'}
             </Text>

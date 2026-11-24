@@ -39,7 +39,11 @@ import {
   type ManualDispenseCommand,
   type ServoCommand,
 } from '../../../domain/ports/device-messenger.port.js';
-import type { ServoCommandDto } from '../dtos/feeding.dto.js';
+import type {
+  ManualDispenseDto,
+  ServoCommandDto,
+} from '../dtos/feeding.dto.js';
+import { validateDoseTarget } from '../../../domain/entities/dose-target.js';
 import { readDeviceResult } from './device-result.js';
 
 export type DiscoveredFeederSource = 'mqtt' | 'default';
@@ -152,7 +156,10 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
     switch (event.kind) {
       case 'servoResult': {
         const request = this.servoRequests.get(event.id);
-        if (request?.deviceId === normalizedId && request.status === 'pending') {
+        if (
+          request?.deviceId === normalizedId &&
+          request.status === 'pending'
+        ) {
           request.status = event.applied ? 'applied' : 'rejected';
           request.reason = event.reason;
         }
@@ -411,15 +418,25 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
   async requestManualDispense(
     user: User,
     deviceId: string,
-    targetGrams: number,
-    requestId?: string,
+    input: ManualDispenseDto,
   ) {
     const device = await this.getDevice(user, deviceId);
-    const id = requestId?.trim() || randomUUID();
+    const { targetGrams = null, durationSeconds = null } = input;
+    try {
+      validateDoseTarget(targetGrams, durationSeconds);
+    } catch (error) {
+      if (error instanceof Error) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const id = input.requestId?.trim() || randomUUID();
     const saved = await this.feeding.findDispensing(user.id, device.id, id);
     const key = device.id + ':' + id;
     if (saved) {
-      if (saved.source !== 'manual' || saved.targetGrams !== targetGrams)
+      if (
+        saved.source !== 'manual' ||
+        saved.targetGrams !== targetGrams ||
+        saved.durationSeconds !== durationSeconds
+      )
         throw new ConflictException(
           'La solicitud ya existe con una cantidad u origen diferente.',
         );
@@ -428,6 +445,7 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
         requestId: id,
         deviceId: device.id,
         targetGrams: saved.targetGrams,
+        durationSeconds: saved.durationSeconds,
         requestedAt:
           saved.startedAt?.toISOString() ??
           saved.finishedAt?.toISOString() ??
@@ -441,15 +459,15 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
         this.manualRequests.delete(pendingKey);
     }
     const pending = this.manualRequests.get(key);
-    if (pending && pending.targetGrams !== targetGrams)
+    if (
+      pending &&
+      ((pending.targetGrams ?? null) !== targetGrams ||
+        (pending.durationSeconds ?? null) !== durationSeconds)
+    )
       throw new ConflictException(
         'La solicitud ya existe con una cantidad diferente.',
       );
-    if (
-      !Number.isFinite(targetGrams) ||
-      targetGrams <= 0 ||
-      targetGrams > device.maxBowlGrams
-    ) {
+    if (targetGrams !== null && targetGrams > device.maxBowlGrams) {
       throw new BadRequestException(
         `El objetivo manual debe estar entre 1 y ${device.maxBowlGrams} gramos.`,
       );
@@ -458,11 +476,22 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       throw new ServiceUnavailableException(
         'El broker no está conectado. Intenta de nuevo.',
       );
+    if (
+      durationSeconds !== null &&
+      (!device.lastSeenAt || Date.now() - device.lastSeenAt.getTime() > 45_000)
+    )
+      throw new ServiceUnavailableException(
+        'El alimentador no está conectado.',
+      );
+    const target =
+      targetGrams !== null
+        ? { targetGrams }
+        : { durationSeconds: durationSeconds! };
     const command: ManualDispenseCommand = pending ?? {
       kind: 'manualDispense',
       requestId: id,
       deviceId: device.id,
-      targetGrams,
+      ...target,
       requestedAt: new Date().toISOString(),
     };
     if (!pending && this.manualRequests.size >= MAX_MANUAL_REQUESTS)
@@ -472,7 +501,7 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
     return {
       requestId: id,
       deviceId: device.id,
-      targetGrams,
+      ...target,
       requestedAt: command.requestedAt,
       status: 'pending' as const,
       dispatched: this.messenger.connected,
@@ -481,19 +510,34 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
 
   async requestServoPosition(user: User, id: string, input: ServoCommandDto) {
     const device = await this.getDevice(user, id);
+    if (input.position === 'closed' && input.openForSeconds !== undefined)
+      throw new BadRequestException('La duración solo aplica al abrir.');
     const now = Date.now();
-    if (!this.messenger.connected || !this.messenger.sendServoPosition ||
-        !device.lastSeenAt || now - device.lastSeenAt.getTime() > 45_000)
-      throw new ServiceUnavailableException('El alimentador no está conectado.');
+    if (
+      !this.messenger.connected ||
+      !this.messenger.sendServoPosition ||
+      !device.lastSeenAt ||
+      now - device.lastSeenAt.getTime() > 45_000
+    )
+      throw new ServiceUnavailableException(
+        'El alimentador no está conectado.',
+      );
     for (const [requestId, request] of this.servoRequests) {
       if (now - Date.parse(request.requestedAt) > SERVO_REQUEST_TTL_MS)
         this.servoRequests.delete(requestId);
-      else if (request.deviceId === device.id && request.status === 'pending' &&
-               now - Date.parse(request.requestedAt) < 12_000)
-        throw new ConflictException('Hay un movimiento pendiente de confirmación.');
+      else if (
+        request.deviceId === device.id &&
+        request.status === 'pending' &&
+        now - Date.parse(request.requestedAt) < 12_000
+      )
+        throw new ConflictException(
+          'Hay un movimiento pendiente de confirmación.',
+        );
     }
     if (this.servoRequests.size >= MAX_MANUAL_REQUESTS)
-      throw new ServiceUnavailableException('Espera antes de enviar otro movimiento.');
+      throw new ServiceUnavailableException(
+        'Espera antes de enviar otro movimiento.',
+      );
     const command: ServoCommand = {
       ...input,
       kind: 'servoPosition',
@@ -501,7 +545,11 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       deviceId: device.id,
       requestedAt: new Date(now).toISOString(),
     };
-    this.servoRequests.set(command.requestId, { ...command, status: 'pending', reason: null });
+    this.servoRequests.set(command.requestId, {
+      ...command,
+      status: 'pending',
+      reason: null,
+    });
     this.messenger.sendServoPosition(device.id, command);
     return this.servoRequests.get(command.requestId);
   }

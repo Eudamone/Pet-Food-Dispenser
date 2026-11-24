@@ -14,6 +14,7 @@ export type PendingPlan = {
   maxBowlGrams: number;
   enabled: boolean;
   maxDailyDispensedGrams: number;
+  maxDailyOpenSeconds?: number;
   foodOpenSeconds: number;
   slots: object[];
   authorizedPetIds?: string[];

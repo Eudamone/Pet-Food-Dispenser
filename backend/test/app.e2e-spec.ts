@@ -323,13 +323,64 @@ describe('API y autorización', () => {
 
   it('mantiene la apertura en 10 segundos con clientes anteriores', async () => {
     const path = `/feeders/${feederId}/plan`;
-    const payload = { expectedRevision: 0, maxDailyDispensedGrams: 100, enabled: false, slots: [] };
+    const payload = {
+      expectedRevision: 0,
+      maxDailyDispensedGrams: 100,
+      enabled: false,
+      slots: [],
+    };
     const api = request(app.getHttpServer());
-    await api.put(path).set('Authorization', 'Bearer test').send(payload).expect(200)
+    await api
+      .put(path)
+      .set('Authorization', 'Bearer test')
+      .send(payload)
+      .expect(200)
       .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(10));
-    await api.put(path).set('Authorization', 'Bearer test')
-      .send({ ...payload, foodOpenSeconds: 17 }).expect(200)
+    await api
+      .put(path)
+      .set('Authorization', 'Bearer test')
+      .send({ ...payload, foodOpenSeconds: 17 })
+      .expect(200)
       .expect(({ body }) => expect(body.plan.foodOpenSeconds).toBe(10));
+  });
+
+  it('guarda horarios en segundos y rechaza objetivos ambiguos', async () => {
+    const path = `/feeders/${feederId}/plan`;
+    const slot = {
+      time: '08:15',
+      days: [1, 4],
+      durationSeconds: 12,
+      enabled: true,
+    };
+    const payload = {
+      expectedRevision: 0,
+      maxDailyOpenSeconds: 45,
+      enabled: true,
+      slots: [slot],
+    };
+    const api = request(app.getHttpServer());
+    await api
+      .put(path)
+      .set('Authorization', 'Bearer test')
+      .send(payload)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.plan.maxDailyOpenSeconds).toBe(45);
+        expect(body.plan.slots[0]).toMatchObject({
+          ...slot,
+          targetGrams: null,
+        });
+      });
+    for (const invalid of [
+      { ...slot, targetGrams: 20 },
+      { ...slot, durationSeconds: 61 },
+    ]) {
+      await api
+        .put(path)
+        .set('Authorization', 'Bearer test')
+        .send({ ...payload, slots: [invalid] })
+        .expect(400);
+    }
   });
 
   it('controla cada servo y espera el resultado del dispositivo', async () => {
@@ -338,23 +389,48 @@ describe('API y autorización', () => {
     feeder.updateObservedState(new Date(), 'closed', null);
     connection.connected = true;
     try {
-      await api.post(path).set('Authorization', 'Bearer test')
-        .send({ servo: 'food', position: 'other' }).expect(400);
-      for (const [servo, position, applied] of [
-        ['food', 'open', true],
-        ['access', 'closed', false],
+      await api
+        .post(path)
+        .set('Authorization', 'Bearer test')
+        .send({ servo: 'food', position: 'other' })
+        .expect(400);
+      await api
+        .post(path)
+        .set('Authorization', 'Bearer test')
+        .send({ servo: 'food', position: 'closed', openForSeconds: 10 })
+        .expect(400);
+      for (const [servo, position, openForSeconds, applied] of [
+        ['food', 'open', 0, true],
+        ['access', 'open', 45, true],
+        ['access', 'closed', undefined, false],
       ] as const) {
-        const { body } = await api.post(path).set('Authorization', 'Bearer test')
-          .send({ servo, position }).expect(202);
+        const command = {
+          servo,
+          position,
+          ...(openForSeconds === undefined ? {} : { openForSeconds }),
+        };
+        const { body } = await api
+          .post(path)
+          .set('Authorization', 'Bearer test')
+          .send(command)
+          .expect(202);
         expect(body.status).toBe('pending');
         expect(connection.sendServoPosition).toHaveBeenLastCalledWith(
-          feederId, expect.objectContaining({ requestId: body.requestId, servo, position }),
+          feederId,
+          expect.objectContaining({ requestId: body.requestId, ...command }),
         );
         await deviceService.synchronize(feederId, {
-          id: body.requestId, kind: 'servoResult', applied,
+          id: body.requestId,
+          kind: 'servoResult',
+          applied,
         });
-        await api.get(`${path}/${body.requestId}`).set('Authorization', 'Bearer test').expect(200)
-          .expect(({ body: result }) => expect(result.status).toBe(applied ? 'applied' : 'rejected'));
+        await api
+          .get(`${path}/${body.requestId}`)
+          .set('Authorization', 'Bearer test')
+          .expect(200)
+          .expect(({ body: result }) =>
+            expect(result.status).toBe(applied ? 'applied' : 'rejected'),
+          );
       }
     } finally {
       connection.connected = false;
@@ -482,6 +558,46 @@ describe('API y autorización', () => {
       .expect(409);
     expect(connection.sendManualDispense).toHaveBeenCalledTimes(previousCalls);
     connection.connected = true;
+  });
+
+  it('envía una dosis por tiempo y registra cuando se omite por apertura manual', async () => {
+    const api = request(app.getHttpServer());
+    const path = `/feeders/${feederId}/dispense`;
+    const command = { durationSeconds: 10, requestId: 'manual-timed' };
+    feeder.updateObservedState(new Date(), 'closed', null);
+    connection.connected = true;
+    await api
+      .post(path)
+      .set('Authorization', 'Bearer test')
+      .send(command)
+      .expect(202);
+    expect(connection.sendManualDispense).toHaveBeenLastCalledWith(
+      feederId,
+      expect.objectContaining(command),
+    );
+    await api
+      .post(path)
+      .set('Authorization', 'Bearer test')
+      .send({ ...command, durationSeconds: 11 })
+      .expect(409);
+    const reason = 'La tolva esta abierta por control manual.';
+    await deviceService.synchronize(feederId, {
+      id: command.requestId,
+      kind: 'dispensing',
+      source: 'manual',
+      durationSeconds: command.durationSeconds,
+      status: 'skipped',
+      reason,
+      finishedAt: new Date().toISOString(),
+    });
+    expect(plans.saveDispensing).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        durationSeconds: 10,
+        targetGrams: null,
+        status: 'skipped',
+        reason,
+      }),
+    );
   });
 
   it('expone alimentadores descubiertos por MQTT y permite onboarding en un paso', async () => {

@@ -1,3 +1,5 @@
+import { validateDoseTarget } from './dose-target.js';
+
 export type DispensingSource = 'schedule' | 'manual';
 export type DispensingStatus =
   'pending' | 'running' | 'completed' | 'skipped' | 'failed' | 'interrupted';
@@ -12,8 +14,9 @@ export class DispensingRecord {
     public readonly id: string,
     public readonly deviceId: string,
     public readonly source: DispensingSource,
-    public readonly targetGrams: number,
+    public readonly targetGrams: number | null,
     public readonly slotId: string | null = null,
+    public readonly durationSeconds: number | null = null,
   ) {
     if (!id.trim() || !deviceId.trim())
       throw new Error('Faltan identificador o equipo.');
@@ -24,15 +27,15 @@ export class DispensingRecord {
       (source === 'manual' && slotId !== null)
     )
       throw new Error('Solo una solicitud programada debe tener horario.');
-    if (!Number.isFinite(targetGrams) || targetGrams <= 0)
-      throw new Error('El objetivo debe ser positivo.');
+    validateDoseTarget(targetGrams, durationSeconds);
   }
 
   static restore(props: {
     id: string;
     deviceId: string;
     source: DispensingSource;
-    targetGrams: number;
+    targetGrams: number | null;
+    durationSeconds?: number | null;
     slotId: string | null;
     status: DispensingStatus;
     startedAt: Date | null;
@@ -45,6 +48,7 @@ export class DispensingRecord {
       props.source,
       props.targetGrams,
       props.slotId,
+      props.durationSeconds,
     );
     if (
       ![

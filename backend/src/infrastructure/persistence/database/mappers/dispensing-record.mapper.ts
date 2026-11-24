@@ -8,6 +8,7 @@ export class DispensingRecordMapper {
       deviceId: row.deviceId,
       source: row.source,
       targetGrams: row.targetGrams,
+      durationSeconds: row.durationSeconds,
       slotId: row.slotId,
       status: row.status,
       startedAt: row.startedAt,
@@ -22,6 +23,7 @@ export class DispensingRecordMapper {
     row.deviceId = record.deviceId;
     row.source = record.source;
     row.targetGrams = record.targetGrams;
+    row.durationSeconds = record.durationSeconds;
     row.slotId = record.slotId;
     row.status = record.status;
     row.startedAt = record.startedAt;

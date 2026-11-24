@@ -11,7 +11,8 @@ export type ManualDispenseCommand = {
   kind: 'manualDispense';
   requestId: string;
   deviceId: string;
-  targetGrams: number;
+  targetGrams?: number;
+  durationSeconds?: number;
   requestedAt: string;
 };
 
@@ -26,6 +27,7 @@ export type ServoCommand = {
   deviceId: string;
   servo: ServoName;
   position: ServoPosition;
+  openForSeconds?: number;
   requestedAt: string;
 };
 

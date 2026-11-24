@@ -23,12 +23,13 @@ export class FeedingPlanModel {
           time: slot.time,
           days: slot.days,
           targetGrams: slot.targetGrams,
+          durationSeconds: slot.durationSeconds,
           enabled: slot.enabled,
         })),
       from: (
         slots: readonly Pick<
           FeedingSlot,
-          'id' | 'time' | 'days' | 'targetGrams' | 'enabled'
+          'id' | 'time' | 'days' | 'targetGrams' | 'durationSeconds' | 'enabled'
         >[],
       ) =>
         slots.map(
@@ -39,6 +40,7 @@ export class FeedingPlanModel {
               slot.days,
               slot.targetGrams,
               slot.enabled,
+              slot.durationSeconds,
             ),
         ),
     },
@@ -50,6 +52,9 @@ export class FeedingPlanModel {
 
   @Column('double precision')
   maxDailyDispensedGrams!: number;
+
+  @Column({ type: 'integer', nullable: true })
+  maxDailyOpenSeconds: number | null = null;
 
   @Column({ type: 'integer', default: FOOD_OPEN_SECONDS })
   foodOpenSeconds: number = FOOD_OPEN_SECONDS;

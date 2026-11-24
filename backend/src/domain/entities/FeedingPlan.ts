@@ -1,4 +1,5 @@
 import { FeedingSlot } from './FeedingSlot.js';
+import { MAX_MANUAL_OPEN_SECONDS } from './dose-target.js';
 
 export const FOOD_OPEN_SECONDS = 10;
 
@@ -12,12 +13,26 @@ export class FeedingPlan {
   private _maxDailyDispensedGrams: number;
   readonly foodOpenSeconds = FOOD_OPEN_SECONDS;
 
-  constructor(id: string, deviceId: string, maxDailyDispensedGrams: number) {
+  constructor(
+    id: string,
+    deviceId: string,
+    maxDailyDispensedGrams: number | null,
+    public readonly maxDailyOpenSeconds: number | null = null,
+  ) {
     if (!id.trim() || !deviceId.trim())
       throw new Error('El plan necesita identificador y equipo.');
     this.id = id;
     this.deviceId = deviceId;
-    this.setMaxDailyDispensed(maxDailyDispensedGrams);
+    this._maxDailyDispensedGrams = 0;
+    if (maxDailyDispensedGrams !== null)
+      this.setMaxDailyDispensed(maxDailyDispensedGrams);
+    if (
+      maxDailyOpenSeconds !== null &&
+      (!Number.isInteger(maxDailyOpenSeconds) ||
+        maxDailyOpenSeconds < 1 ||
+        maxDailyOpenSeconds > MAX_MANUAL_OPEN_SECONDS)
+    )
+      throw new Error('El límite diario en segundos no es válido.');
   }
 
   get slots(): readonly FeedingSlot[] {
@@ -84,7 +99,7 @@ export class FeedingPlan {
     for (const slot of slots) {
       if (ids.has(slot.id)) throw new Error('El horario ya pertenece al plan.');
       ids.add(slot.id);
-      if (slot.targetGrams > capacity)
+      if (slot.targetGrams !== null && slot.targetGrams > capacity)
         throw new Error('El objetivo supera la capacidad del plato.');
       if (!slot.enabled) continue;
       for (const day of slot.days) {

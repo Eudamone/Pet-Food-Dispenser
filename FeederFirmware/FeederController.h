@@ -81,13 +81,13 @@ class Gate {
 class Dispenser {
  public:
   void initialize();
-  bool start(uint16_t cycles, uint32_t now);
+  bool start(uint16_t cycles, uint32_t now, uint32_t openMs = DeviceConfig::FOOD_OPEN_MS);
   void tick(uint32_t now);
   bool isRunning() const;
   bool finished() const;
   bool failed() const;
   bool manualOpen() const;
-  bool setManualPosition(bool open, uint32_t now);
+  bool setManualPosition(bool open, uint32_t now, uint32_t openMs = 0);
   void reset();
   void stop();
   bool setPulse(uint16_t pulse);
@@ -96,6 +96,7 @@ class Dispenser {
   enum class State { Idle, BootClosing, Priming, Opening, Holding, Closing, Pausing, Finished, Failed, ManualOpen };
   State state_ = State::Idle;
   uint32_t changedAt_ = 0;
+  uint32_t openMs_ = 0;
   uint16_t cycles_ = 0;
   uint16_t completed_ = 0;
   bool ready_ = false;
@@ -124,7 +125,7 @@ class FeederController {
   void recover();
   void updateBudget();
   bool rememberRequest(const String& id, uint32_t now);
-  bool beginDispense(const String& id, float grams, const char* source, const String& slotId, const String& scheduleKey);
+  bool beginDispense(const String& id, JsonObjectConst target, const char* source, const String& slotId, const String& scheduleKey);
   void finishDispense(const char* status, const char* reason = nullptr);
   void checkSchedules(uint32_t now);
   void checkAccess(uint32_t now);
@@ -156,6 +157,9 @@ class FeederController {
   String brokerFallback_;
   String fault_;
   String lastTag_;
+  String lastAccessTag_;
+  String reportedGate_;
+  String reportedFault_;
   uint32_t connectionAt_ = 0;
   uint32_t wifiAt_ = 0;
   uint32_t reportedAt_ = 0;
@@ -163,6 +167,8 @@ class FeederController {
   uint32_t publishedAt_ = 0;
   uint32_t schedulesAt_ = 0;
   uint32_t clearAt_ = 0;
+  uint32_t manualAccessAt_ = 0;
+  uint32_t manualAccessMs_ = 0;
   uint32_t tagSequence_ = 0;
   uint32_t tagReportedAt_ = 0;
   size_t resultIndex_ = 0;

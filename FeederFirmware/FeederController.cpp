@@ -52,6 +52,13 @@ bool positive(JsonVariantConst value, float maximum = 10000) {
   return std::isfinite(number) && number > 0 && number <= maximum;
 }
 
+bool validDose(JsonObjectConst target, float maxGrams = 10000) {
+  const auto seconds = target["durationSeconds"];
+  if (seconds.isNull()) return positive(target["targetGrams"], maxGrams);
+  return target["targetGrams"].isNull() && seconds.is<uint32_t>() &&
+    seconds.as<uint32_t>() >= 1 && seconds.as<uint32_t>() <= MAX_DOSE_SECONDS;
+}
+
 uint32_t parseUtc(const String& value) {
   if (value.length() < 20 || value.length() > 32 || !value.endsWith("Z")) return 0;
   if (value[4] != '-' || value[7] != '-' || value[10] != 'T' || value[13] != ':' || value[16] != ':') return 0;
@@ -231,7 +238,8 @@ bool Gate::blocked() const { return state_ == State::Blocked; }
 const char* Gate::observedState() const {
   if (blocked()) return "blocked";
   if (moving()) return "moving";
-  if (DeviceConfig::CLOSED_SENSOR_PIN < 0) return "unknown";
+  if (DeviceConfig::CLOSED_SENSOR_PIN < 0)
+    return closed() ? "closed" : open() ? "open" : "unknown";
   if (closedSignal()) return "closed";
   return open() ? "open" : "unknown";
 }
@@ -249,10 +257,11 @@ void Dispenser::initialize() {
 
 bool Dispenser::setPulse(uint16_t value) { return ready_ && pulse(DeviceConfig::FOOD_PIN, value); }
 
-bool Dispenser::start(uint16_t cycles, uint32_t now) {
+bool Dispenser::start(uint16_t cycles, uint32_t now, uint32_t openMs) {
   if (isRunning() || manualOpen() || !cycles || cycles > MAX_CYCLES_PER_ORDER) return false;
   if (!setPulse(DeviceConfig::FOOD_CLOSED_US)) return false;
   cycles_ = cycles;
+  openMs_ = openMs;
   completed_ = 0;
   changedAt_ = now;
   state_ = State::Priming;
@@ -263,7 +272,7 @@ void Dispenser::tick(uint32_t now) {
   const uint32_t elapsed = now - changedAt_;
   switch (state_) {
     case State::ManualOpen:
-      if (elapsed < FOOD_TRAVEL_MS + FOOD_OPEN_MS) return;
+      if (!openMs_ || elapsed < openMs_) return;
       state_ = setPulse(FOOD_CLOSED_US) ? State::BootClosing : State::Failed;
       break;
     case State::BootClosing:
@@ -281,7 +290,7 @@ void Dispenser::tick(uint32_t now) {
       state_ = State::Holding;
       break;
     case State::Holding:
-      if (elapsed < FOOD_OPEN_MS) return;
+      if (elapsed < openMs_) return;
       if (!setPulse(DeviceConfig::FOOD_CLOSED_US)) { state_ = State::Failed; return; }
       state_ = State::Closing;
       break;
@@ -302,9 +311,9 @@ bool Dispenser::isRunning() const {
 
 bool Dispenser::manualOpen() const { return state_ == State::ManualOpen; }
 
-bool Dispenser::setManualPosition(bool open, uint32_t now) {
-  if (open && manualOpen()) return true;
+bool Dispenser::setManualPosition(bool open, uint32_t now, uint32_t openMs) {
   if ((open && isRunning()) || !setPulse(open ? FOOD_OPEN_US : FOOD_CLOSED_US)) return false;
+  openMs_ = openMs && !manualOpen() ? FOOD_TRAVEL_MS + openMs : openMs;
   state_ = open ? State::ManualOpen : State::BootClosing;
   changedAt_ = now;
   return true;
@@ -553,6 +562,8 @@ bool FeederController::validateConfiguration(JsonObjectConst command) const {
       command["revision"].as<uint32_t>() > 2147483647UL || !command["enabled"].is<bool>() ||
       !positive(command["maxBowlGrams"]) || !command["maxDailyDispensedGrams"].is<float>() ||
       !std::isfinite(command["maxDailyDispensedGrams"].as<float>()) || command["maxDailyDispensedGrams"].as<float>() < 0 ||
+      (!command["maxDailyOpenSeconds"].isNull() && (!command["maxDailyOpenSeconds"].is<uint32_t>() ||
+        command["maxDailyOpenSeconds"].as<uint32_t>() > MAX_MANUAL_OPEN_SECONDS)) ||
       !command["slots"].is<JsonArrayConst>() || command["slots"].size() > DeviceConfig::MAX_SLOTS ||
       (!command["authorizedPets"].isNull() && !command["authorizedPets"].is<JsonArrayConst>()) ||
       command["authorizedPets"].size() > DeviceConfig::MAX_PETS) return false;
@@ -561,7 +572,7 @@ bool FeederController::validateConfiguration(JsonObjectConst command) const {
     if (!identifier(slot["id"].as<String>()) || time.length() != 5 || time[2] != ':' ||
         !isdigit(time[0]) || !isdigit(time[1]) || !isdigit(time[3]) || !isdigit(time[4]) ||
         time.substring(0, 2).toInt() > 23 || time.substring(3).toInt() > 59 ||
-        !positive(slot["targetGrams"], command["maxBowlGrams"].as<float>()) ||
+        !validDose(slot, command["maxBowlGrams"].as<float>()) ||
         !slot["enabled"].is<bool>()) return false;
     JsonArrayConst days = slot["days"].is<JsonArrayConst>() ? slot["days"].as<JsonArrayConst>() : slot["_days"].as<JsonArrayConst>();
     if (days.isNull() || !days.size() || days.size() > 7) return false;
@@ -642,15 +653,18 @@ void FeederController::publishResults(uint32_t now) {
 }
 
 void FeederController::observe(uint32_t now) {
-  if (!clock_.utc() || (observedAt_ && now - observedAt_ < 10000)) return;
+  const char* gateState = gate_.observedState();
+  const uint32_t interval = reportedGate_ != gateState || reportedFault_ != fault_ ? 1000 : 10000;
+  if (!clock_.utc() || (observedAt_ && now - observedAt_ < interval)) return;
   observedAt_ = now;
+  reportedGate_ = gateState;
+  reportedFault_ = fault_;
   JsonDocument event;
   event["id"] = eventId();
   event["kind"] = "observation";
   event["at"] = timestamp();
-  event["gate"] = gate_.observedState();
+  event["gate"] = gateState;
   if (!fault_.isEmpty()) event["fault"] = fault_;
-  else if (DeviceConfig::CLOSED_SENSOR_PIN < 0) event["fault"] = "Sin sensor de cierre; posicion de acceso estimada.";
   else event["fault"] = nullptr;
   event["measurementMode"] = "estimated";
   event["estimatedGramsPerCycle"] = saved_["gramsPerCycle"];
@@ -676,10 +690,11 @@ void FeederController::recover() {
 
 void FeederController::updateBudget() {
   const String day = date();
-  const String previous = saved_["budgetDay"].as<String>();
+  const String previous = saved_["budgetDay"] | "";
   if (day.isEmpty() || (!previous.isEmpty() && day <= previous)) return;
   saved_["budgetDay"] = day;
   saved_["budgetGrams"] = 0.0f;
+  saved_["budgetSeconds"] = 0;
   save();
 }
 
@@ -701,7 +716,7 @@ void FeederController::acceptManual(JsonObjectConst command) {
   const String id = command["requestId"].as<String>();
   if (!storageReady_ || command["kind"] != "manualDispense" ||
       command["deviceId"].as<String>() != DeviceConfig::DEVICE_ID || !identifier(id) ||
-      !positive(command["targetGrams"])) { fault_ = "Orden de dosis invalida."; return; }
+      !validDose(command)) { fault_ = "Orden de dosis invalida."; return; }
   if (saved_["events"].size() >= DeviceConfig::MAX_PENDING_RESULTS - 2) {
     fault_ = "Esperando confirmacion de resultados antes de aceptar otra orden.";
     return;
@@ -715,17 +730,20 @@ void FeederController::acceptManual(JsonObjectConst command) {
     return;
   }
   if (!rememberRequest(id, utc)) return;
-  beginDispense(id, command["targetGrams"].as<float>(), "manual", "", "");
+  beginDispense(id, command, "manual", "", "");
 }
 
 void FeederController::acceptServo(JsonObjectConst command) {
   const String id = command["requestId"].as<String>();
   const String servo = command["servo"].as<String>();
   const String position = command["position"].as<String>();
+  const auto seconds = command["openForSeconds"];
   if (!storageReady_ || command["kind"] != "servoPosition" ||
       command["deviceId"] != DEVICE_ID || !uuid(id) ||
       (servo != "access" && servo != "food") ||
-      (position != "open" && position != "closed")) return;
+      (position != "open" && position != "closed") ||
+      (!seconds.isNull() && (position != "open" || !seconds.is<uint32_t>() ||
+        seconds.as<uint32_t>() > MAX_MANUAL_OPEN_SECONDS))) return;
   const uint32_t utc = clock_.utc();
   const uint32_t requested = parseUtc(command["requestedAt"].as<String>());
   if (!utc || !requested || requested > utc + 5 || (utc > requested && utc - requested > 10)) return;
@@ -739,15 +757,22 @@ void FeederController::acceptServo(JsonObjectConst command) {
       (!stopDose && (dispenser_.isRunning() || !saved_["active"].isNull()))) {
     reason = "El alimentador esta ocupado.";
   } else if (servo == "food") {
-    if (!dispenser_.setManualPosition(open, now))
+    const uint32_t openMs = seconds.isNull() ? FOOD_OPEN_MS : seconds.as<uint32_t>() * 1000UL;
+    if (!dispenser_.setManualPosition(open, now, openMs))
       reason = "No se pudo mover la tolva.";
     else if (stopDose)
       finishDispense("interrupted", "La tolva se cerro desde la app.");
   } else if (!open && presence_.present()) {
     reason = "El FC-51 indica presencia en el acceso.";
   } else {
+    const bool alreadyOpen = gate_.open();
     const bool moved = open ? gate_.requestOpen(now) : gate_.requestClose(now);
-    if (moved) accessHeldOpen_ = open;
+    if (moved) {
+      accessHeldOpen_ = open;
+      manualAccessAt_ = now;
+      manualAccessMs_ = seconds.as<uint32_t>() * 1000UL;
+      if (manualAccessMs_ && !alreadyOpen) manualAccessMs_ += ACCESS_TRAVEL_MS;
+    }
     else reason = "No se pudo mover la compuerta de acceso.";
   }
   JsonDocument result;
@@ -758,27 +783,36 @@ void FeederController::acceptServo(JsonObjectConst command) {
   transientResult(result.as<JsonObjectConst>(), "servo");
 }
 
-bool FeederController::beginDispense(const String& id, float grams, const char* source,
+bool FeederController::beginDispense(const String& id, JsonObjectConst target, const char* source,
     const String& slotId, const String& scheduleKey) {
+  const uint32_t seconds = target["durationSeconds"] | 0UL;
+  const bool timed = seconds > 0;
+  const float grams = target["targetGrams"] | 0.0f;
   const float gramsPerCycle = saved_["gramsPerCycle"] | DeviceConfig::ESTIMATED_GRAMS_PER_CYCLE;
   const float cyclesValue = gramsPerCycle > 0 ? ceilf(grams / gramsPerCycle) : 0;
-  const uint16_t cycles = cyclesValue > DeviceConfig::MAX_CYCLES_PER_ORDER ? 0 : uint16_t(cyclesValue);
+  const uint16_t cycles = timed ? 1 :
+    cyclesValue > DeviceConfig::MAX_CYCLES_PER_ORDER ? 0 : uint16_t(cyclesValue);
   const float estimated = cycles * gramsPerCycle;
   const float bowl = saved_["plan"]["maxBowlGrams"] | 0.0f;
   const float daily = saved_["plan"]["maxDailyDispensedGrams"] | 0.0f;
   const float used = saved_["budgetGrams"] | 0.0f;
+  const uint32_t dailySeconds = saved_["plan"]["maxDailyOpenSeconds"] | 0UL;
+  const uint32_t usedSeconds = saved_["budgetSeconds"] | 0UL;
   const char* reason = nullptr;
   if (!storageReady_) return false;
   if (!clock_.utc()) reason = "El equipo no tiene hora valida.";
-  else if (date() < saved_["budgetDay"].as<String>()) reason = "El reloj retrocedio. Corrige la hora antes de dosificar.";
+  else if (date() < String(saved_["budgetDay"] | "")) reason = "El reloj retrocedio. Corrige la hora antes de dosificar.";
   else if (override_) reason = "El equipo esta en control manual por puerto serie.";
-  else if (!saved_["active"].isNull() || dispenser_.isRunning() || dispenser_.manualOpen() ||
+  else if (dispenser_.manualOpen()) reason = "La tolva esta abierta por control manual.";
+  else if (accessHeldOpen_) reason = "La compuerta de acceso esta abierta por control manual.";
+  else if (!saved_["active"].isNull() || dispenser_.isRunning() ||
            !saved_["access"].isNull()) reason = "El equipo esta ocupado.";
   else if (!gate_.closed()) reason = "La compuerta de acceso no esta en posicion de cierre.";
   else if (!saved_["plan"].is<JsonObject>()) reason = "Falta recibir la configuracion del servidor.";
-  else if (!cycles || !std::isfinite(estimated)) reason = "La calibracion no permite esta dosis.";
-  else if (grams > bowl || estimated > bowl) reason = "La dosis estimada supera la capacidad configurada.";
-  else if (daily > 0 && used + estimated > daily + 0.001f) reason = "La dosis estimada supera el limite diario.";
+  else if (!timed && (!cycles || !std::isfinite(estimated))) reason = "La calibracion no permite esta dosis.";
+  else if (!timed && (grams > bowl || estimated > bowl)) reason = "La dosis estimada supera la capacidad configurada.";
+  else if (!timed && daily > 0 && used + estimated > daily + 0.001f) reason = "La dosis estimada supera el limite diario.";
+  else if (timed && dailySeconds && usedSeconds + seconds > dailySeconds) reason = "La dosis supera el limite diario de apertura.";
   else if (saved_["events"].size() >= DeviceConfig::MAX_PENDING_RESULTS - 2) reason = "Hay resultados pendientes de confirmacion.";
 
   if (!scheduleKey.isEmpty()) saved_["scheduled"][slotId] = scheduleKey;
@@ -787,7 +821,8 @@ bool FeederController::beginDispense(const String& id, float grams, const char* 
     event["id"] = id;
     event["kind"] = "dispensing";
     event["source"] = source;
-    event["targetGrams"] = grams;
+    if (timed) event["durationSeconds"] = seconds;
+    else event["targetGrams"] = grams;
     event["status"] = "skipped";
     event["reason"] = reason;
     if (!slotId.isEmpty()) event["slotId"] = slotId;
@@ -800,18 +835,24 @@ bool FeederController::beginDispense(const String& id, float grams, const char* 
   active["id"] = id;
   active["kind"] = "dispensing";
   active["source"] = source;
-  active["targetGrams"] = grams;
-  active["estimatedGrams"] = estimated;
-  active["measurementMode"] = "estimated";
+  if (timed) {
+    active["durationSeconds"] = seconds;
+    saved_["budgetSeconds"] = usedSeconds + seconds;
+  } else {
+    active["targetGrams"] = grams;
+    active["estimatedGrams"] = estimated;
+    active["measurementMode"] = "estimated";
+    saved_["budgetGrams"] = used + estimated;
+  }
   active["startedAt"] = timestamp();
   if (!slotId.isEmpty()) active["slotId"] = slotId;
-  saved_["budgetGrams"] = used + estimated;
   if (!save()) return false;
-  if (!dispenser_.start(cycles, millis())) {
+  if (!dispenser_.start(cycles, millis(), timed ? seconds * 1000UL : FOOD_OPEN_MS)) {
     finishDispense("failed", "No se pudo activar el dosificador.");
     return false;
   }
-  Serial.printf("Dosis iniciada: objetivo %.1f g, estimacion %.1f g, %u ciclos.\n", grams, estimated, cycles);
+  if (timed) Serial.printf("Dosis iniciada: %lu segundos.\n", static_cast<unsigned long>(seconds));
+  else Serial.printf("Dosis iniciada: objetivo %.1f g, estimacion %.1f g, %u ciclos.\n", grams, estimated, cycles);
   return true;
 }
 
@@ -837,28 +878,30 @@ void FeederController::checkSchedules(uint32_t now) {
   const auto local = clock_.nowLocal(now);
   if (!local || !(saved_["plan"]["enabled"] | false)) return;
   const String day = date();
-  if (day < saved_["budgetDay"].as<String>()) return;
+  if (day < String(saved_["budgetDay"] | "")) return;
   char hhmm[6];
   snprintf(hhmm, sizeof(hhmm), "%02u:%02u", local->hour(), local->minute());
   for (JsonObjectConst slot : saved_["plan"]["slots"].as<JsonArrayConst>()) {
     if (!(slot["enabled"] | false) || slot["time"].as<String>() != hhmm) continue;
     const String id = slot["id"].as<String>();
-    if (saved_["scheduled"][id].as<String>() >= day) continue;
+    const String lastRun = saved_["scheduled"][id] | "";
+    if (lastRun >= day) continue;
     bool matches = false;
     JsonArrayConst days = slot["days"].is<JsonArrayConst>() ? slot["days"].as<JsonArrayConst>() : slot["_days"].as<JsonArrayConst>();
     for (JsonVariantConst weekday : days) if (weekday.as<uint8_t>() == local->dayOfTheWeek()) matches = true;
     if (!matches) continue;
     if (saved_["events"].size() >= DeviceConfig::MAX_PENDING_RESULTS - 2) return;
     const String resultId = String("s-") + id + "-" + day;
-    beginDispense(resultId, slot["targetGrams"].as<float>(), "schedule", id, day);
+    beginDispense(resultId, slot, "schedule", id, day);
     return;
   }
 }
 
 void FeederController::checkRfid(uint32_t now) {
+  const String tag = rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS);
+  if (tag.isEmpty()) lastAccessTag_ = "";
   if (tagSequence_ == rfid_.sequence()) return;
   tagSequence_ = rfid_.sequence();
-  const String tag = rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS);
   if (tag.isEmpty() || !clock_.utc()) return;
   if (tag != lastTag_ || now - tagReportedAt_ >= DeviceConfig::RFID_REPORT_MS) {
     lastTag_ = tag;
@@ -871,7 +914,7 @@ void FeederController::checkRfid(uint32_t now) {
     transientResult(event.as<JsonObjectConst>(), "rfid");
     Serial.printf("RFID: %s\n", tag.c_str());
   }
-  if (!storageReady_ || override_ || !saved_["access"].isNull() || !saved_["active"].isNull() ||
+  if (!storageReady_ || override_ || tag == lastAccessTag_ || !saved_["access"].isNull() || !saved_["active"].isNull() ||
       dispenser_.isRunning() || !gate_.closed() || saved_["events"].size() >= DeviceConfig::MAX_PENDING_RESULTS - 2) return;
   for (JsonObjectConst pet : saved_["plan"]["authorizedPets"].as<JsonArrayConst>()) {
     String authorized = pet["tagUid"].as<String>();
@@ -892,6 +935,7 @@ void FeederController::checkRfid(uint32_t now) {
       event["issue"] = fault_;
       if (queueResult(event.as<JsonObjectConst>())) { saved_.remove("access"); save(); }
     }
+    lastAccessTag_ = tag;
     clearAt_ = 0;
     return;
   }
@@ -917,7 +961,10 @@ void FeederController::checkAccess(uint32_t now) {
   }
   gate_.tick(now);
   if (gate_.blocked()) { fault_ = "No se pudo confirmar el cierre de la compuerta."; return; }
-  if (accessHeldOpen_) return;
+  if (accessHeldOpen_) {
+    if (!manualAccessMs_ || now - manualAccessAt_ < manualAccessMs_) return;
+    accessHeldOpen_ = false;
+  }
   if (gate_.open() && !saved_["access"].isNull() && saved_["access"]["openedAt"].isNull()) {
     saved_["access"]["openedAt"] = timestamp();
     save();
@@ -927,8 +974,6 @@ void FeederController::checkAccess(uint32_t now) {
     return;
   }
   if (gate_.moving() || !clearAt_ || now - clearAt_ < DeviceConfig::CLEAR_BEFORE_CLOSE_MS) return;
-  const String recentTag = rfid_.readRecent(now, DeviceConfig::TAG_RECENT_MS);
-  if (!saved_["access"].isNull() && !recentTag.isEmpty() && saved_["access"]["tagUid"].as<String>() == recentTag) return;
   if (!gate_.requestClose(now)) { fault_ = "No se pudo activar la compuerta de acceso."; gate_.stop(); }
 }
 
