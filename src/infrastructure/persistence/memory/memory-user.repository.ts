@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type { User } from '../../../domain/entities/User.js';
 import type { UserRepository } from '../../../domain/repositories/user.repository.js';
 import { MemoryDatabase } from './memory.database.js';
@@ -6,6 +6,18 @@ import { MemoryDatabase } from './memory.database.js';
 @Injectable()
 export class MemoryUserRepository implements UserRepository {
   constructor(private readonly db: MemoryDatabase) {}
+
+  async findLocalCredentials(email: string) {
+    return this.db.credentials.get(email) ?? null;
+  }
+
+  async createLocalUser(user: User, passwordHash: string): Promise<User> {
+    if (this.db.credentials.has(user.email))
+      throw new ConflictException('Ese correo ya está registrado.');
+    this.db.users.set(user.id, user);
+    this.db.credentials.set(user.email, { userId: user.id, passwordHash });
+    return user;
+  }
 
   async findById(id: string): Promise<User | null> {
     return this.db.users.get(id) ?? null;

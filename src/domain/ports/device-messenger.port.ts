@@ -2,7 +2,10 @@ import type { PendingPlan } from '../repositories/device.repository.js';
 
 export const DEVICE_MESSENGER = Symbol('DEVICE_MESSENGER');
 
-export type FeedingPlanCommand = PendingPlan & { kind: 'feedingPlan' };
+export type FeedingPlanCommand = PendingPlan & {
+  kind: 'feedingPlan';
+  sentAt?: string;
+};
 
 export type ManualDispenseCommand = {
   kind: 'manualDispense';

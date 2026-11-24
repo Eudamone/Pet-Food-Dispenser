@@ -1,3 +1,4 @@
+import { LocalCredentialModel } from './database/models/local-credential.model.js';
 import { Module, type DynamicModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { USER_REPOSITORY } from '../../domain/repositories/user.repository.js';
@@ -52,6 +53,7 @@ export class PersistenceModule {
         }),
         TypeOrmModule.forFeature([
           UserModel,
+          LocalCredentialModel,
           PetModel,
           RfidTagModel,
           FeederDeviceModel,

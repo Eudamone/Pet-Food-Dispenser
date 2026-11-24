@@ -83,6 +83,13 @@ export class DatabaseFeedingRepository implements FeedingRepository {
     return rows.map((row) => DispensingRecordMapper.toDomain(row));
   }
 
+  async findDispensing(ownerId: string, deviceId: string, id: string) {
+    const row = await this.history(DispensingRecordModel, ownerId, deviceId)
+      .andWhere('record.id = :id', { id })
+      .getOne();
+    return row ? DispensingRecordMapper.toDomain(row) : null;
+  }
+
   private history<T extends ObjectLiteral>(
     entity: EntityTarget<T>,
     ownerId: string,
@@ -124,8 +131,7 @@ export class DatabaseFeedingRepository implements FeedingRepository {
         where: { id: plan.deviceId, ownerId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!row)
-        throw new NotFoundException('No se encontró el alimentador.');
+      if (!row) throw new NotFoundException('No se encontró el alimentador.');
       if (row.desiredRevision !== expectedRevision)
         throw new ConflictException(
           'La revisión cambió. Actualiza el plan antes de guardar.',

@@ -17,7 +17,9 @@ export function resolveMqttConfig(): MqttConnectionConfig {
   }
 
   const url = new URL(address);
-  const local = LOCAL_HOSTS.includes(url.hostname);
+  const local =
+    LOCAL_HOSTS.includes(url.hostname) ||
+    process.env.MQTT_ALLOW_INSECURE === 'true';
 
   if (url.protocol !== 'mqtts:' && !(local && url.protocol === 'mqtt:')) {
     throw new Error('MQTT_URL debe usar MQTT sobre TLS.');

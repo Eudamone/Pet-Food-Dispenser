@@ -7,6 +7,7 @@ import { PetService } from '../dist/presentation/http/services/pet.service.js';
 import { AuthService } from '../dist/presentation/http/services/auth.service.js';
 import { DeviceService } from '../dist/presentation/http/services/device.service.js';
 import { AccessSession } from '../dist/domain/entities/AccessSession.js';
+import { DispensingRecord } from '../dist/domain/entities/DispensingRecord.js';
 import { Pet } from '../dist/domain/entities/Pet.js';
 import { USER_REPOSITORY } from '../dist/domain/repositories/user.repository.js';
 import { PET_REPOSITORY } from '../dist/domain/repositories/pet.repository.js';
@@ -52,6 +53,7 @@ describe('API y autorización', () => {
   const plans = {
     saveAccess: vi.fn(async (_session: AccessSession) => undefined),
     saveDispensing: vi.fn(async () => undefined),
+    findDispensing: vi.fn(async (): Promise<DispensingRecord | null> => null),
     listAccess: vi.fn(async (): Promise<AccessSession[]> => []),
     listDispensing: vi.fn(async () => []),
     listAccessByDay: vi.fn(async (): Promise<AccessSession[]> => []),
@@ -213,6 +215,29 @@ describe('API y autorización', () => {
     );
   });
 
+  it('rechaza un plan con 17 horarios antes de persistirlo', async () => {
+    const previousCalls = plans.savePlan.mock.calls.length;
+    const response = await request(app.getHttpServer())
+      .put('/feeders/' + feederId + '/plan')
+      .set('Authorization', 'Bearer test')
+      .send({
+        expectedRevision: 0,
+        enabled: true,
+        maxDailyDispensedGrams: 100,
+        slots: Array.from({ length: 17 }, (_, index) => ({
+          time: String(index).padStart(2, '0') + ':00',
+          days: [1],
+          targetGrams: 1,
+          enabled: true,
+        })),
+      })
+      .expect(400);
+    expect(response.body.message).toContain(
+      'El alimentador admite hasta 16 horarios.',
+    );
+    expect(plans.savePlan).toHaveBeenCalledTimes(previousCalls);
+  });
+
   it('consulta las mascotas usando el propietario verificado', async () => {
     await request(app.getHttpServer())
       .get('/pets')
@@ -272,7 +297,41 @@ describe('API y autorización', () => {
     expect(revokeResponse.body.authorizedPetIds).not.toContain(petId);
   });
 
+  it('rechaza la mascota autorizada número 17 sin modificar el equipo', async () => {
+    const ids = Array.from(
+      { length: 16 - feeder.authorizedPetIds.size },
+      (_, index) => 'limit-pet-' + index,
+    );
+    for (const id of ids) feeder.addAuthorizedPet(id);
+    const petId = '00000000-0000-4000-8000-000000000017';
+    pets.findById.mockResolvedValueOnce(new Pet(petId, user.id, 'Luna'));
+    try {
+      const response = await request(app.getHttpServer())
+        .put(`/feeders/${feederId}/pets/${petId}`)
+        .set('Authorization', 'Bearer test')
+        .expect(400);
+      expect(response.body.message).toBe(
+        'El alimentador admite hasta 16 mascotas autorizadas.',
+      );
+      expect(feeder.authorizedPetIds.size).toBe(16);
+      expect(feeder.isPetAuthorized(petId)).toBe(false);
+    } finally {
+      for (const id of ids) feeder.removeAuthorizedPet(id);
+    }
+  });
+
+  it('rechaza la dispensación manual mientras el broker está desconectado', async () => {
+    connection.connected = false;
+    await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ targetGrams: 35, requestId: 'offline-request' })
+      .expect(503);
+    expect(connection.sendManualDispense).not.toHaveBeenCalled();
+  });
+
   it('despacha solicitud de dispensación manual al firmware y sincroniza el resultado', async () => {
+    connection.connected = true;
     const response = await request(app.getHttpServer())
       .post(`/feeders/${feederId}/dispense`)
       .set('Authorization', 'Bearer test')
@@ -306,6 +365,82 @@ describe('API y autorización', () => {
     expect(connection.confirmResults).toHaveBeenCalledWith(feederId, [
       'manual-req-01',
     ]);
+  });
+
+  it('reutiliza el comando pendiente y rechaza otra cantidad con el mismo identificador', async () => {
+    const body = { targetGrams: 20, requestId: 'pending-retry' };
+    const first = await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send(body)
+      .expect(202);
+    const firstCommand = connection.sendManualDispense.mock.calls.at(-1)![1];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const second = await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send(body)
+      .expect(202);
+    expect(second.body.requestedAt).toBe(first.body.requestedAt);
+    expect(connection.sendManualDispense.mock.calls.at(-1)![1]).toBe(
+      firstCommand,
+    );
+    const previousCalls = connection.sendManualDispense.mock.calls.length;
+    await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ ...body, targetGrams: 21 })
+      .expect(409);
+    expect(connection.sendManualDispense).toHaveBeenCalledTimes(previousCalls);
+  });
+
+  it('devuelve el resultado persistido sin republicar y rechaza cambios de cantidad u origen', async () => {
+    const record = new DispensingRecord(
+      'already-completed',
+      feederId,
+      'manual',
+      20,
+    );
+    record.markStarted(new Date('2026-11-19T14:00:00Z'));
+    record.markCompleted(new Date('2026-11-19T14:00:01Z'));
+    connection.connected = false;
+    const previousCalls = connection.sendManualDispense.mock.calls.length;
+    plans.findDispensing.mockResolvedValueOnce(record);
+    const response = await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ targetGrams: 20, requestId: record.id })
+      .expect(202);
+    expect(response.body).toMatchObject({
+      status: 'completed',
+      dispatched: false,
+    });
+    expect(plans.findDispensing).toHaveBeenCalledWith(
+      user.id,
+      feederId,
+      record.id,
+    );
+    plans.findDispensing.mockResolvedValueOnce(record);
+    await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ targetGrams: 21, requestId: record.id })
+      .expect(409);
+    const scheduled = new DispensingRecord(
+      'schedule-collision',
+      feederId,
+      'schedule',
+      20,
+      'slot-1',
+    );
+    plans.findDispensing.mockResolvedValueOnce(scheduled);
+    await request(app.getHttpServer())
+      .post(`/feeders/${feederId}/dispense`)
+      .set('Authorization', 'Bearer test')
+      .send({ targetGrams: 20, requestId: scheduled.id })
+      .expect(409);
+    expect(connection.sendManualDispense).toHaveBeenCalledTimes(previousCalls);
+    connection.connected = true;
   });
 
   it('expone alimentadores descubiertos por MQTT y permite onboarding en un paso', async () => {

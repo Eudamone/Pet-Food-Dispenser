@@ -55,7 +55,7 @@ export class SaveFeedingPlanDto {
   enabled: boolean;
 
   @IsArray()
-  @ArrayMaxSize(100)
+  @ArrayMaxSize(16, { message: 'El alimentador admite hasta 16 horarios.' })
   @ValidateNested({ each: true })
   @Type(() => FeedingSlotDto)
   slots: FeedingSlotDto[];

@@ -48,7 +48,15 @@ export class MemoryDeviceRepository implements DeviceRepository {
         maxBowlGrams: device.maxBowlGrams,
         enabled: plan?.enabled ?? false,
         maxDailyDispensedGrams: plan?.maxDailyDispensedGrams ?? 0,
-        slots: plan ? [...plan.slots] : [],
+        slots: plan
+          ? plan.slots.map((slot) => ({
+              id: slot.id,
+              time: slot.time,
+              days: [...slot.days],
+              targetGrams: slot.targetGrams,
+              enabled: slot.enabled,
+            }))
+          : [],
         authorizedPetIds,
         authorizedPets,
       });

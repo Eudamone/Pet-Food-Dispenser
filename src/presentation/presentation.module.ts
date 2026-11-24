@@ -1,3 +1,5 @@
+import { AuthController } from './http/controllers/auth.controller.js';
+import { LocalAuthService } from './http/services/local-auth.service.js';
 import { Module } from '@nestjs/common';
 import { DEVICE_MESSENGER } from '../domain/ports/device-messenger.port.js';
 import { MqttDeviceMessenger } from '../infrastructure/messaging/device-messenger.js';
@@ -18,6 +20,7 @@ import { DeviceEventsConsumer } from './events/device-events.consumer.js';
 
 @Module({
   controllers: [
+    AuthController,
     HealthController,
     UsersController,
     OnboardingController,
@@ -28,6 +31,7 @@ import { DeviceEventsConsumer } from './events/device-events.consumer.js';
     DeviceEventsConsumer,
   ],
   providers: [
+    LocalAuthService,
     AuthService,
     PetService,
     DeviceService,

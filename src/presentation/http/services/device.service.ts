@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   type OnModuleInit,
   type OnModuleDestroy,
 } from '@nestjs/common';
@@ -35,6 +36,7 @@ import {
 import {
   DEVICE_MESSENGER,
   type DeviceMessenger,
+  type ManualDispenseCommand,
 } from '../../../domain/ports/device-messenger.port.js';
 import { readDeviceResult } from './device-result.js';
 
@@ -71,14 +73,20 @@ const FALLBACK_FEEDER_NAME = 'Comedero Principal';
 const FALLBACK_MAX_BOWL_GRAMS = 500;
 const SCANNED_RFID_TTL_MS = 60_000;
 const MAX_SCANNED_TAGS_PER_DEVICE = 5;
+const MANUAL_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_MANUAL_REQUESTS = 1000;
 
 @Injectable()
 export class DeviceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DeviceService.name);
   private readonly discovered = new Map<string, DiscoveredFeeder>();
-  private readonly scannedTags = new Map<string, Map<string, ScannedRfidEntry>>();
+  private readonly scannedTags = new Map<
+    string,
+    Map<string, ScannedRfidEntry>
+  >();
   private timer?: ReturnType<typeof setInterval>;
   private sending = false;
+  private readonly manualRequests = new Map<string, ManualDispenseCommand>();
 
   constructor(
     @Inject(DEVICE_REPOSITORY) private readonly feeders: DeviceRepository,
@@ -111,6 +119,7 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       for (const plan of await this.feeders.pendingPlans())
         this.messenger.sendConfiguration(plan.deviceId, {
           kind: 'feedingPlan',
+          sentAt: new Date().toISOString(),
           ...plan,
         });
     } catch (error) {
@@ -326,6 +335,11 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    if (!device.isPetAuthorized(petId) && device.authorizedPetIds.size >= 16)
+      throw new BadRequestException(
+        'El alimentador admite hasta 16 mascotas autorizadas.',
+      );
+
     if (device.addAuthorizedPet(petId)) {
       device.markRequested(device.desiredRevision + 1);
       const saved = await this.feeders.saveDevice(device);
@@ -384,6 +398,36 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
     requestId?: string,
   ) {
     const device = await this.getDevice(user, deviceId);
+    const id = requestId?.trim() || randomUUID();
+    const saved = await this.feeding.findDispensing(user.id, device.id, id);
+    const key = device.id + ':' + id;
+    if (saved) {
+      if (saved.source !== 'manual' || saved.targetGrams !== targetGrams)
+        throw new ConflictException(
+          'La solicitud ya existe con una cantidad u origen diferente.',
+        );
+      this.manualRequests.delete(key);
+      return {
+        requestId: id,
+        deviceId: device.id,
+        targetGrams: saved.targetGrams,
+        requestedAt:
+          saved.startedAt?.toISOString() ??
+          saved.finishedAt?.toISOString() ??
+          null,
+        status: saved.status,
+        dispatched: false,
+      };
+    }
+    for (const [pendingKey, command] of this.manualRequests) {
+      if (Date.now() - Date.parse(command.requestedAt) >= MANUAL_REQUEST_TTL_MS)
+        this.manualRequests.delete(pendingKey);
+    }
+    const pending = this.manualRequests.get(key);
+    if (pending && pending.targetGrams !== targetGrams)
+      throw new ConflictException(
+        'La solicitud ya existe con una cantidad diferente.',
+      );
     if (
       !Number.isFinite(targetGrams) ||
       targetGrams <= 0 ||
@@ -393,26 +437,35 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
         `El objetivo manual debe estar entre 1 y ${device.maxBowlGrams} gramos.`,
       );
     }
-    const id = requestId?.trim() || randomUUID();
-    const requestedAt = new Date().toISOString();
-    this.messenger.sendManualDispense?.(device.id, {
+    if (!this.messenger.connected || !this.messenger.sendManualDispense)
+      throw new ServiceUnavailableException(
+        'El broker no está conectado. Intenta de nuevo.',
+      );
+    const command: ManualDispenseCommand = pending ?? {
       kind: 'manualDispense',
       requestId: id,
       deviceId: device.id,
       targetGrams,
-      requestedAt,
-    });
+      requestedAt: new Date().toISOString(),
+    };
+    if (!pending && this.manualRequests.size >= MAX_MANUAL_REQUESTS)
+      this.manualRequests.delete(this.manualRequests.keys().next().value!);
+    this.manualRequests.set(key, command);
+    this.messenger.sendManualDispense(device.id, command);
     return {
       requestId: id,
       deviceId: device.id,
       targetGrams,
-      requestedAt,
+      requestedAt: command.requestedAt,
       status: 'pending' as const,
       dispatched: this.messenger.connected,
     };
   }
 
-  async listScannedTags(user: User, deviceId: string): Promise<ScannedRfidTag[]> {
+  async listScannedTags(
+    user: User,
+    deviceId: string,
+  ): Promise<ScannedRfidTag[]> {
     const device = await this.getDevice(user, deviceId);
     const entries = this.getFreshScannedEntries(device.id);
     if (entries.length === 0) return [];
@@ -449,7 +502,10 @@ export class DeviceService implements OnModuleInit, OnModuleDestroy {
     return candidate?.tagUid ?? null;
   }
 
-  async clearScannedTagForOwner(ownerId: string, tagUid: string): Promise<void> {
+  async clearScannedTagForOwner(
+    ownerId: string,
+    tagUid: string,
+  ): Promise<void> {
     const cleanUid = tagUid.trim().toUpperCase();
     const owned = await this.feeders.listByOwner(ownerId);
     for (const device of owned) {

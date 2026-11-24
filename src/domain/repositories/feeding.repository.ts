@@ -12,6 +12,11 @@ export type PlanRevision = {
 export interface FeedingRepository {
   saveAccess(session: AccessSession): Promise<void>;
   saveDispensing(record: DispensingRecord): Promise<void>;
+  findDispensing(
+    ownerId: string,
+    deviceId: string,
+    id: string,
+  ): Promise<DispensingRecord | null>;
   listAccess(ownerId: string, deviceId: string): Promise<AccessSession[]>;
   listAccessByDay(
     ownerId: string,

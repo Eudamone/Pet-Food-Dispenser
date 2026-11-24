@@ -1,3 +1,4 @@
+import { LocalAuthService } from './local-auth.service.js';
 import {
   Inject,
   Injectable,
@@ -15,9 +16,12 @@ import {
 export class AuthService {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+    private readonly local: LocalAuthService,
   ) {}
 
   async currentUser(token: string): Promise<User> {
+    if (process.env.AUTH_DRIVER === 'local')
+      return this.local.currentUser(token);
     const url = process.env.SUPABASE_URL;
     const apiKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 

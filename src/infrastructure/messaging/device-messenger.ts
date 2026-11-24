@@ -46,7 +46,7 @@ export class MqttDeviceMessenger implements DeviceMessenger, OnModuleDestroy {
     this.client.publish(
       `feeders/${deviceId}/${channel}`,
       JSON.stringify(data),
-      { qos: 0, retain: false },
+      { qos: 1, retain: false },
       (error) => {
         if (error) this.logger.warn(error.message);
       },

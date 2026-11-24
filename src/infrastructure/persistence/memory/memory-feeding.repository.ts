@@ -26,6 +26,13 @@ export class MemoryFeedingRepository implements FeedingRepository {
     if (!this.db.dispensing.has(key)) this.db.dispensing.set(key, record);
   }
 
+  findDispensing(ownerId: string, deviceId: string, id: string) {
+    if (!this.ownedBy(deviceId, ownerId)) return Promise.resolve(null);
+    return Promise.resolve(
+      this.db.dispensing.get(this.db.recordKey(id, deviceId)) ?? null,
+    );
+  }
+
   async listAccess(
     ownerId: string,
     deviceId: string,
@@ -35,8 +42,10 @@ export class MemoryFeedingRepository implements FeedingRepository {
       .filter((session) => session.deviceId === deviceId)
       .sort(
         (a, b) =>
-          nullsLastDesc(a.openedAt?.getTime() ?? null, b.openedAt?.getTime() ?? null) ||
-          b.id.localeCompare(a.id, 'en'),
+          nullsLastDesc(
+            a.openedAt?.getTime() ?? null,
+            b.openedAt?.getTime() ?? null,
+          ) || b.id.localeCompare(a.id, 'en'),
       )
       .slice(0, 100);
   }
@@ -77,8 +86,7 @@ export class MemoryFeedingRepository implements FeedingRepository {
     ownerId: string,
     deviceId: string,
   ): Promise<FeedingPlan | null> {
-    if (!this.ownedBy(deviceId, ownerId))
-      return Promise.resolve(null);
+    if (!this.ownedBy(deviceId, ownerId)) return Promise.resolve(null);
     return Promise.resolve(this.db.plans.get(deviceId) ?? null);
   }
 
@@ -113,10 +121,7 @@ export class MemoryFeedingRepository implements FeedingRepository {
   }
 }
 
-function nullsLastDesc(
-  a: number | null,
-  b: number | null,
-): number {
+function nullsLastDesc(a: number | null, b: number | null): number {
   if (a === null || b === null) {
     if (a === null && b === null) return 0;
     return a === null ? 1 : -1;

@@ -51,6 +51,19 @@ pids
 firmware.txt.txt
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-AGENTS.md
-/.agents
 
+/scripts/setup-local.mjs
+/EntregaPetFeeder/
+/EntregaPetFeeder.zip
+/PetFeeder.apk
+/Iniciar-servidor.ps1
+/Detener-servidor.ps1
+/Cargar-ESP32.ps1
+/Permitir-red.ps1
+
+*.[mM][dD]
+*.markdown
+*.ps1
+/scripts/
+*.aab
+*.apk
