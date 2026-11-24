@@ -132,6 +132,8 @@ class FeederController {
   void closeAccess();
   void checkRfid(uint32_t now);
   void serialCommand();
+  void loadNetwork();
+  void configureWifi(const String& json);
   void report(uint32_t now);
   uint32_t foodOpenMs() const;
   String date() const;
@@ -151,6 +153,9 @@ class FeederController {
   String incoming_;
   String incomingTopic_;
   String serialLine_;
+  String wifiSsid_;
+  String wifiPassword_;
+  String brokerFallback_;
   String fault_;
   String lastTag_;
   uint32_t connectionAt_ = 0;

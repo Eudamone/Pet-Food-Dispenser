@@ -357,7 +357,8 @@ void FeederController::initialize() {
       if (save()) recover();
     }
   } else if (fault_.isEmpty()) fault_ = "No se pudo abrir la memoria del equipo.";
-  networkReady_ = FEEDER_WIFI_SSID[0] && FEEDER_MQTT_HOST[0] && uuid(DeviceConfig::DEVICE_ID);
+  loadNetwork();
+  networkReady_ = !wifiSsid_.isEmpty() && FEEDER_MQTT_HOST[0] && uuid(DeviceConfig::DEVICE_ID);
   if (FEEDER_MQTT_TLS) {
     if (!FEEDER_MQTT_CA[0]) {
       networkReady_ = false;
@@ -379,13 +380,60 @@ void FeederController::initialize() {
   if (networkReady_) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(FEEDER_WIFI_SSID, FEEDER_WIFI_PASSWORD);
+    WiFi.begin(wifiSsid_.c_str(), wifiPassword_.c_str());
   }
   Serial.printf("Equipo: %s | Acceso GPIO%u | Alimento GPIO%u\n", DeviceConfig::DEVICE_ID,
     DeviceConfig::ACCESS_PIN, DeviceConfig::FOOD_PIN);
   Serial.println("Ordenes: estado, p 2500, l 1600, off, on, ciclo, cal 20, hora <Unix UTC>");
   if (!networkReady_) Serial.println("Configura Secrets.h para conectar WiFi y MQTT.");
   if (!fault_.isEmpty()) Serial.println(fault_);
+}
+
+void FeederController::loadNetwork() {
+  wifiSsid_ = FEEDER_WIFI_SSID;
+  wifiPassword_ = FEEDER_WIFI_PASSWORD;
+  Preferences config;
+  if (!config.begin("feeder-net", true)) return;
+  const String stored = config.getString("wifi");
+  config.end();
+  JsonDocument wifi;
+  if (stored.isEmpty() || deserializeJson(wifi, stored) ||
+      !wifi["ssid"].is<const char*>() || !wifi["password"].is<const char*>()) return;
+  wifiSsid_ = wifi["ssid"].as<String>();
+  wifiPassword_ = wifi["password"].as<String>();
+  brokerFallback_ = wifi["fallback"].as<String>();
+}
+
+void FeederController::configureWifi(const String& json) {
+  if (gate_.moving() || accessHeldOpen_ || dispenser_.isRunning() || dispenser_.manualOpen() ||
+      !saved_["access"].isNull() || !saved_["active"].isNull()) {
+    Serial.println("WIFI_BUSY");
+    return;
+  }
+  JsonDocument wifi;
+  IPAddress fallback;
+  if (deserializeJson(wifi, json) || !wifi["ssid"].is<const char*>() ||
+      !wifi["password"].is<const char*>() ||
+      !fallback.fromString(wifi["fallback"] | "")) {
+    Serial.println("WIFI_INVALID");
+    return;
+  }
+  const String ssid = wifi["ssid"].as<String>();
+  const String password = wifi["password"].as<String>();
+  if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 64 ||
+      (!password.isEmpty() && password.length() < 8)) {
+    Serial.println("WIFI_INVALID");
+    return;
+  }
+  Preferences config;
+  if (!config.begin("feeder-net", false) || config.putString("wifi", json) != json.length()) {
+    Serial.println("WIFI_SAVE_ERROR");
+    return;
+  }
+  config.end();
+  Serial.println("WIFI_SAVED");
+  Serial.flush();
+  ESP.restart();
 }
 
 bool FeederController::save() {
@@ -462,7 +510,8 @@ void FeederController::connect(uint32_t now) {
   connectionAt_ = now;
   if (!FEEDER_MQTT_TLS && strcmp(FEEDER_MQTT_HOST, "petfeeder.local") == 0) {
     if (!mdnsReady_) mdnsReady_ = MDNS.begin("petfeeder-esp32");
-    const auto address = mdnsReady_ ? MDNS.queryHost("petfeeder", 500) : IPAddress();
+    auto address = mdnsReady_ ? MDNS.queryHost("petfeeder", 500) : IPAddress();
+    if (!address && !brokerFallback_.isEmpty()) address.fromString(brokerFallback_);
     if (!address) {
       Serial.println("MQTT: petfeeder.local aun no responde.");
       return;
@@ -900,13 +949,17 @@ void FeederController::serialCommand() {
     const char c = char(Serial.read());
     if (c == '\r') continue;
     if (c != '\n') {
-      if (serialLine_.length() < 120) serialLine_ += c;
+      if (serialLine_.length() < 320) serialLine_ += c;
       else serialLine_ = "";
       continue;
     }
     String command = serialLine_;
     serialLine_ = "";
     command.trim();
+    if (command.startsWith("wifi ")) {
+      configureWifi(command.substring(5));
+      continue;
+    }
     command.toLowerCase();
     if (command.isEmpty()) continue;
     if (command == "estado") { report(millis()); continue; }

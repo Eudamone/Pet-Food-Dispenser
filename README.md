@@ -14,6 +14,10 @@ El script levanta PostgreSQL, Mosquitto y la API, y anuncia `petfeeder.local` en
 
 Los puertos TCP 3000 (API), 1883 (MQTT) y UDP 5353 (mDNS) deben quedar accesibles desde la LAN que usa el montaje. El broker requiere credenciales y el usuario del ESP32 solo puede operar los temas de su UUID. Mantén esta configuración en la red local. PostgreSQL queda dentro de Docker.
 
+### Cambiar de red para la presentación
+
+Conecta el PC a la red elegida y comprueba que esté disponible en 2,4 GHz para el ESP32. Con el servidor encendido y el ESP32 por USB, ejecuta `./tools/configure-wifi.ps1 -Port COM4` desde PowerShell. El script toma la Wi-Fi activa del PC, configura el ESP32 por USB y comprueba que vuelva a MQTT. El equipo guarda esa red y una IP de respaldo. Puedes indicar otro SSID de la misma LAN con `-Ssid`, y el argumento `-AskPassword` permite ingresar su clave sin mostrarla.
+
 ## ESP32 y montaje final
 
 Para compilar `FeederFirmware`, usa ESP32 Dev Module y las bibliotecas ArduinoJson, PubSubClient, RTClib, Adafruit PN532 y Adafruit BusIO. Copia `Secrets.h.example` a `Secrets.h` y completa la Wi-Fi. El usuario MQTT es el UUID de `DeviceConfig.h` y su contraseña es `MQTT_DEVICE_PASSWORD` de `backend/.env.local`. Los archivos con credenciales quedan fuera de Git.
