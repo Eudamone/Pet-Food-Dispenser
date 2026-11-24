@@ -10,7 +10,7 @@ Con Docker Desktop iniciado, ejecuta desde PowerShell en la raíz del repositori
 ./tools/start-local.ps1
 ```
 
-El script levanta PostgreSQL, Mosquitto y la API, y anuncia `petfeeder.local` en la Wi-Fi. Para una interfaz con otro nombre, usa `-InterfaceAlias`. La app toma `http://petfeeder.local:3000` por defecto. Si el teléfono o la red no resuelven mDNS, usa en Ajustes la IPv4 del PC, con el puerto 3000. El ESP32 busca el mismo nombre para MQTT y admite una IP fija en su configuración. El teléfono y el ESP32 deben poder alcanzar el PC en la misma LAN.
+El script levanta PostgreSQL, Mosquitto y la API, y anuncia `petfeeder.local` en la red. Para una interfaz con otro nombre, usa `-InterfaceAlias`. La app toma `http://petfeeder.local:3000` por defecto. Si el teléfono o la red no resuelven mDNS, usa en Ajustes la IPv4 del PC, con el puerto 3000. El ESP32 busca el mismo nombre para MQTT y admite una IP fija en su configuración. El ESP32 necesita Wi-Fi de 2,4 GHz. Puede usar la zona móvil del PC cuando el router solo anuncia 5 GHz. Ambos clientes deben poder alcanzar el PC.
 
 Los puertos TCP 3000 (API), 1883 (MQTT) y UDP 5353 (mDNS) deben quedar accesibles desde la LAN que usa el montaje. El broker requiere credenciales y el usuario del ESP32 solo puede operar los temas de su UUID. Mantén esta configuración en la red local. PostgreSQL queda dentro de Docker.
 
