@@ -1,44 +1,29 @@
 {
   "name": "proyecto-dispensador",
   "version": "1.0.0",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
-    "@react-native-picker/picker": "2.11.4",
-    "@react-native-vector-icons/common": "^13.0.3",
-    "@react-native-vector-icons/fontawesome-free-solid": "^1.1.4",
-    "@react-native-vector-icons/lucide": "^13.1.4",
-    "@react-navigation/bottom-tabs": "^7.18.18",
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "babel-preset-expo": "^57.0.10",
     "expo": "~57.0.20",
+    "expo-build-properties": "~57.0.17",
     "expo-constants": "~57.0.17",
     "expo-font": "~57.0.4",
-    "expo-haptics": "~57.0.3",
-    "expo-image": "~57.0.5",
-    "expo-linking": "~57.0.9",
-    "expo-router": "~57.0.19",
     "expo-status-bar": "~57.0.1",
-    "nativewind": "^4.2.6",
-    "prettier-plugin-tailwindcss": "^0.5.14",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.53.0",
     "react-native": "0.86.3",
-    "react-native-gesture-handler": "~2.32.0",
-    "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
-    "react-native-svg": "15.15.4",
-    "react-native-worklets": "0.10.1",
-    "tailwindcss": "^3.4.19",
     "zod": "^4.6.7"
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "eslint ."
   },
   "private": true,
   "devDependencies": {
@@ -46,7 +31,6 @@
     "eslint-config-expo": "~57.0.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
-    "prettier": "^3.9.6",
-    "react-native-svg-transformer": "^1.5.3"
+    "prettier": "^3.9.6"
   }
 }
