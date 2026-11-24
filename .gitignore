@@ -1,0 +1,13 @@
+FeederFirmware/Secrets.h
+build/
+
+/configure.ps1
+*.[mM][dD]
+*.markdown
+*.ps1
+/scripts/
+/EntregaPetFeeder/
+/EntregaPetFeeder.zip
+/PetFeeder.apk
+*.aab
+*.apk
