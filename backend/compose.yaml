@@ -1,0 +1,59 @@
+name: pet-feeder-app
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pet_feeder
+      POSTGRES_USER: pet_feeder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en el archivo de entorno}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pet_feeder -d pet_feeder"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  broker:
+    image: eclipse-mosquitto:2.0.22
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "pet-feeder/health", "-n"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  backend:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PERSISTENCE_DRIVER: db
+      DATABASE_URL: postgresql://pet_feeder:${POSTGRES_PASSWORD}@database:5432/pet_feeder
+      DB_SCHEMA: public
+      DB_SYNCHRONIZE: "true"
+      AUTH_DRIVER: local
+      AUTH_SECRET: ${AUTH_SECRET:?Configura AUTH_SECRET en el archivo de entorno}
+      MQTT_URL: mqtt://broker:1883
+      MQTT_ALLOW_INSECURE: "true"
+      DEFAULT_FEEDER_ID: ${DEFAULT_FEEDER_ID:-11111111-1111-4111-8111-111111111111}
+      DEFAULT_FEEDER_NAME: Comedero principal
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      database:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
+volumes:
+  postgres_data:
